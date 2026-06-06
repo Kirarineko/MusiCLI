@@ -18,6 +18,8 @@
   --lyrics-gap: 10px;
   --lyrics-align: center;
   --lyrics-align-flex: center;
+  --lyrics-current-size: 24px;
+  --lyrics-next-size: 14px;
   --bg-img: none;
   --bg-blur: 0px;
   --font: "Consolas", "Courier New", "Fira Code", monospace;
@@ -234,12 +236,12 @@ cmd { color: var(--fg-bright); font-weight: bold; }
 }
 
 .lyric-line.next {
-  font-size: 0.75em;
+  font-size: var(--lyrics-next-size);
   color: var(--lyrics-fg);
 }
 
 .lyric-line.current {
-  font-size: 1.3em;
+  font-size: var(--lyrics-current-size);
   font-weight: bold;
   color: var(--lyrics-accent);
 }

@@ -134,6 +134,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     printRaw('    lyric gap <px>        ' + t('helpLyricGap'));
     printRaw('    lyric accent|fg <hex> ' + t('helpLyricColor'));
     printRaw('    lyric shadow <s|m|l>  ' + t('helpLyricShadow'));
+    printRaw('    lyric size cur|n <px> ' + t('helpLyricSize'));
     printRaw('    lyric align <l|c|r>   ' + t('helpLyricAlign'));
     printRaw('    lyric lock            ' + t('helpLyricLock'));
     printRaw('    bar [width|char]      ' + t('helpProgress'));
@@ -143,10 +144,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     printRaw('    track info|pl <n>     ' + t('helpTrack'));
     printLine('  ' + t('helpGroupAppearance'), 'dim');
     printRaw('    set vol <0-100>       ' + t('helpVol'));
+    printRaw('    colors                ' + t('helpColors'));
     printRaw('    set color [<t> <#hex>]  ' + t('helpColor'));
     printRaw('    set bg [clear]        ' + t('helpBg'));
     printRaw('    set blur <0-50>       ' + t('helpBlur'));
     printRaw('    set font size|weight|import|clear');
+    printRaw('    set maxlines <n>      ' + t('helpMaxlines'));
     printRaw('    theme list|save|load|delete|export|import  ' + t('helpTheme'));
     printLine('  ' + t('helpGroupSystem'), 'dim');
     printRaw('    lang <en|zh|ja>       ' + t('helpLang'));

@@ -30,6 +30,8 @@ export interface LyricsThemeData {
   lyricsGap?: number;
   lyricsShadow?: string;
   lyricsAlign?: string;
+  lyricsCurrentSize?: number;
+  lyricsNextSize?: number;
 }
 
 export interface MusicPlayerAPI {

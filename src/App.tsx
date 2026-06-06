@@ -85,6 +85,8 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
         lyricsGap: s.lyricsGap || 10,
         lyricsShadow: SHADOW_PRESETS[s.lyricsShadow] || '0 0 10px rgba(0,0,0,0.85)',
         lyricsAlign: s.lyricsAlign || 'center',
+        lyricsCurrentSize: s.lyricsCurrentSize || 24,
+        lyricsNextSize: s.lyricsNextSize || 14,
       });
     }, 200);
     return () => clearTimeout(timer);

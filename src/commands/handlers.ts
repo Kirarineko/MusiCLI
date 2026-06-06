@@ -538,6 +538,26 @@ export function registerAllCommands() {
       }
       c.saveSettings({ lyricsGap: g });
       c.printLine(t('lyricGapSet', { v: g }), 'success');
+    } else if (sub === 'size') {
+      const which = (rest || '').toLowerCase();
+      const val = parseInt(args[2], 10);
+      if (which === 'current' || which === 'cur' || which === 'c') {
+        if (isNaN(val) || val < 10 || val > 80) {
+          c.printLine(t('lyricSizeUsage', { v: getStoredSettings().lyricsCurrentSize || 24 }), 'info');
+          return;
+        }
+        c.saveSettings({ lyricsCurrentSize: val });
+        c.printLine(t('lyricSizeSet', { which: 'current', v: val }), 'success');
+      } else if (which === 'next' || which === 'n') {
+        if (isNaN(val) || val < 8 || val > 60) {
+          c.printLine(t('lyricSizeUsage', { v: getStoredSettings().lyricsNextSize || 14 }), 'info');
+          return;
+        }
+        c.saveSettings({ lyricsNextSize: val });
+        c.printLine(t('lyricSizeSet', { which: 'next', v: val }), 'success');
+      } else {
+        c.printLine(t('lyricSizeUsage', { v: '' }), 'info');
+      }
     } else if (sub === 'align') {
       const v = (rest || '').toLowerCase();
       if (v === 'left' || v === 'l') {

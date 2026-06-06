@@ -339,6 +339,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           lyricsGap: s2.lyricsGap || 10,
           lyricsShadow: SHADOW_PRESETS[s2.lyricsShadow] || SHADOW_PRESETS.medium,
           lyricsAlign: s2.lyricsAlign || 'center',
+          lyricsCurrentSize: s2.lyricsCurrentSize || 24,
+          lyricsNextSize: s2.lyricsNextSize || 14,
         });
       }, 200);
     } else {
