@@ -38,12 +38,12 @@
     },
     "dist/index.html": {
       "ipo_ts": 1780723776896,
-      "edit_count": 25,
+      "edit_count": 26,
       "last_lines": 13,
-      "last_ts": 1780743122602,
+      "last_ts": 1780743493104,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "f79b3048"
+      "last_content_hash": "ce668a9"
     },
     "src/components/InputLine.tsx": {
       "ipo_ts": 1780723931392,
@@ -65,12 +65,12 @@
     },
     "src/contexts/PlayerContext.tsx": {
       "ipo_ts": 1780725033995,
-      "edit_count": 21,
-      "last_lines": 436,
-      "last_ts": 1780742870913,
+      "edit_count": 24,
+      "last_lines": 442,
+      "last_ts": 1780743483083,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "de4f98c5"
+      "last_content_hash": "2cd5b3de"
     },
     "src/App.tsx": {
       "ipo_ts": 1780725113390,
@@ -137,21 +137,21 @@
     },
     "dist/assets/index-CXw6-ekC.css": {
       "ipo_ts": 1780742919044,
-      "edit_count": 2,
+      "edit_count": 3,
       "last_lines": 1,
-      "last_ts": 1780743122593,
+      "last_ts": 1780743493102,
       "delisted": false,
       "last_source": "onEdit",
       "last_content_hash": "e4b3a374"
     },
-    "dist/assets/index-p7KdrNau.js": {
-      "ipo_ts": 1780743122599,
+    "dist/assets/index-CF0CzVSp.js": {
+      "ipo_ts": 1780743493098,
       "edit_count": 1,
       "last_lines": 33,
-      "last_ts": 1780743122599,
+      "last_ts": 1780743493098,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "b278577d"
+      "last_content_hash": "c6ae949"
     }
   }
 }

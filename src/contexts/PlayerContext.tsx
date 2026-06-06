@@ -74,6 +74,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const lastSentFloatingIdxRef = useRef(-1);
   const shuffleStackRef = useRef<number[]>([]);
   const endedCallbacksRef = useRef<Array<() => void>>([]);
+  const loadLrcRef = useRef<((path: string) => void) | null>(null);
   const lyricPrinterRef = useRef<((text: string, className?: string) => void) | null>(null);
 
   const registerLyricPrinter = useCallback((fn: (text: string, className?: string) => void) => {
@@ -262,6 +263,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setLyricsLines(lines);
     return lines.length > 0;
   }, []);
+  // Keep ref synced so onEnded can call loadLRC
+  useEffect(() => { loadLrcRef.current = loadLRC; }, [loadLRC]);
 
   const sendLyricsToFloating = useCallback((time: number) => {
     if (lyricsLines.length === 0) {
@@ -384,6 +387,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const nextTrack = currentIndexRef.current + 1;
         if (nextTrack < playlistRef.current.length) playIndex(nextTrack);
       }
+      // Load lyrics for the new track
+      const fp = playlistRef.current[currentIndexRef.current];
+      if (fp && loadLrcRef.current) loadLrcRef.current(fp);
       endedCallbacksRef.current.forEach(fn => fn());
     }}
     onError={() => {
