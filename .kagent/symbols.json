@@ -2,12 +2,12 @@
   "symbols": {
     "CLAUDE.md": {
       "ipo_ts": 1780723184436,
-      "edit_count": 2,
-      "last_lines": 99,
-      "last_ts": 1780723248710,
+      "edit_count": 3,
+      "last_lines": 124,
+      "last_ts": 1780752248580,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "6a2bd829"
+      "last_content_hash": "68833c05"
     },
     "src/contexts/TerminalContext.tsx": {
       "ipo_ts": 1780723395327,

@@ -9,10 +9,20 @@ pnpm dev              # Vite dev server only (browser, no Electron IPC)
 pnpm start            # Full Electron app: starts Vite + launches Electron
 pnpm build            # TypeScript check + production build to dist/
 pnpm lint             # ESLint
-pnpm electron:build:win  # Build Windows installer
+pnpm electron:build:win  # Build Windows installer (needs PowerShell in PATH)
 ```
 
 Package manager is **pnpm**. The `package.json` does NOT have `"type": "module"` — Electron main/preload use CommonJS (`require`), while the renderer (React/TS) is bundled by Vite as ESM.
+
+### Packaging
+
+```bash
+# On Windows, PowerShell must be in PATH for electron-builder:
+export PATH="$PATH:/c/Windows/System32/WindowsPowerShell/v1.0"
+pnpm electron:build:win
+```
+
+Output: `release/Musicli 2.0.0.exe` (portable) and `release/Musicli-2.0.0-win.zip`.
 
 ## Architecture Overview
 
@@ -20,8 +30,8 @@ Package manager is **pnpm**. The `package.json` does NOT have `"type": "module"`
 
 ### Process Model
 
-- **Main process** (`electron/main.js`): CJS. Creates a frameless BrowserWindow. Exposes ~15 IPC handlers for file dialogs, music-metadata parsing, directory listing, file I/O, window controls. Uses `webSecurity: false` only in dev mode (because pages served from `http://localhost` can't load `file://` audio sources — cross-origin). Production loads from `dist/index.html` which is same-origin with audio files.
-- **Preload** (`electron/preload.js`): CJS. Bridges IPC to renderer via `contextBridge.exposeInMainWorld('musicPlayer', { ... })`. All renderer ↔ main communication goes through this single surface.
+- **Main process** (`electron/main.js`): CJS. Creates a frameless BrowserWindow + transparent floating lyrics window. Exposes IPC handlers for file dialogs, music-metadata, directory listing (including recursive LRC search), file I/O, LRC offset persistence, lyrics theme replay, mouse passthrough toggle, window auto-size. Uses `webSecurity: false` only in dev mode (`file://` audio cross-origin with `http://localhost` page).
+- **Preload** (`electron/preload.js`): CJS. Bridges IPC to renderer via `contextBridge.exposeInMainWorld('musicPlayer', { ... })`. All renderer↔main communication goes through this single surface.
 - **Renderer** (`src/`): React 19 + TypeScript, bundled by Vite. No Node.js integration (`contextIsolation: true`, `nodeIntegration: false`).
 
 ### Renderer Component Tree & Context Hierarchy
@@ -31,8 +41,8 @@ App
 ├── SettingsProvider          (CSS variables, themes, language)
 │   └── PlaylistProvider      (named playlists, syncs to player)
 │       └── PlayerProvider    (audio element, playback state, lyrics)
-│           └── TerminalProvider (output lines, select/imode state, commands)
-│               └── AppInitializer (wires PlayerContext → PlaylistContext)
+│           └── TerminalProvider (output lines, select/imode/seek states, commands)
+│               └── AppInitializer (wires contexts together, startup sync)
 │                   ├── BackgroundLayer
 │                   ├── TitleBar
 │                   ├── Terminal        (renders lines + banner)
@@ -45,55 +55,70 @@ The nesting order matters: `PlaylistProvider` wraps `PlayerProvider` because pla
 
 ### Context Cross-Communication
 
-`PlayerContext` and `PlaylistContext` are separate contexts but must stay in sync. The `PlaylistContext` exposes `registerPlayerSync(sync: PlayerSync)` — `AppInitializer` calls this once to inject player functions (`addToPlaylist`, `clearPlaylist`, `getPlaylist`) into the playlist context. Then `addTracksToCurrent()`, `replaceCurrentTracks()`, `switchPlaylist()`, and `deletePlaylist()` all automatically sync changes to the active player playlist.
+**PlaylistContext ↔ PlayerContext**: `PlaylistContext.registerPlayerSync(sync: PlayerSync)` receives `addToPlaylist`, `clearPlaylist`, `getPlaylist` from the player. `AppInitializer` wires this once. Then `addTracksToCurrent()`, `replaceCurrentTracks()`, `switchPlaylist()`, and `deletePlaylist()` all automatically sync to the player's active playlist.
+
+**PlayerContext → TerminalContext**: `PlayerContext.registerLyricPrinter(fn)` receives `terminal.printLine`. `AppInitializer` wires this. Terminal-mode lyrics use this to print timed lines.
 
 ### Command System
 
-`src/commands/registry.ts` — Simple flat command registry. `register(name, aliases, handler, helpKey)` stores commands keyed by lowercase name/alias. `getCommand(name)` looks up and returns `{ handler }`.
+`src/commands/registry.ts` — Flat command registry. `register(name, aliases, handler, helpKey)` stores commands keyed by lowercase name/alias.
 
-`src/commands/handlers.ts` — All ~30 commands defined here. Uses a module-level `_ctx: CommandContext` variable set by `setCommandContext()`. The `CommandContext` interface bundles functions from all four contexts so command handlers have unified access to player, playlists, terminal output, settings, and themes.
+`src/commands/handlers.ts` — All commands defined here. Uses module-level `_ctx: CommandContext` set by `setCommandContext()`. The `CommandContext` bundles functions from all four contexts.
 
-`src/components/InputLine.tsx` — Parses input, looks up commands via `getCommand()`, calls `cmd.handler(args)`. Rebuilds and sets `CommandContext` before each execution to ensure fresh state references.
+**CRITICAL**: `registerAllCommands()` is called at **module level** (not in `useEffect`). If called in `useEffect`, Vite HMR resets the module-level `commands` object but the effect never re-runs, silently losing all commands.
 
 ### IPC Return Types
 
-All IPC handlers that can fail return `T | { error: string }`. A local `hasError(obj)` helper (checks `typeof obj === 'object' && 'error' in obj`) discriminates the union. **Do not** use raw `'error' in result` — TypeScript 6 requires `object` type for the `in` operator.
+All IPC handlers that can fail return `T | { error: string }`. Use `hasError(obj)` helper: `typeof obj === 'object' && obj !== null && 'error' in obj`. **Do not** use raw `'error' in result` — TypeScript 6 requires `object` type for `in`.
 
 ### Interactive Modes
 
-Two selection UIs managed by `TerminalContext`:
+1. **Fuzzy select** (`selectMode`): After `play <name>` with multiple matches. Arrow keys + Enter, Esc, mouse wheel.
+2. **Interactive multi-select** (`imode`): For `import` and `track pl`. Space toggles, Enter confirms, Esc cancels, typing filters.
+3. **Seek mode** (`seekMode`): `seek` with no args. Left/Right arrows seek by configurable step. Any other key exits.
 
-1. **Fuzzy select** (`selectMode`): After `play <name>` with multiple matches. Arrow keys + Enter to pick, Esc to cancel. Mouse wheel supported via `SelectList` component.
-2. **Interactive multi-select** (`imode`): For `import` and `track pl` commands. Space toggles selection, Enter confirms, Esc cancels. Typing filters the list.
-
-Filter input uses native browser text editing: `onInput` reads `inputRef.current.value` and calls `terminal.updateFilter()`. **Do not** intercept Backspace/Delete or printable characters with `preventDefault()` — let the browser handle text editing, only intercept special keys (arrows, space, enter, escape) that change semantics.
+Filter input: `onInput` reads `inputRef.current.value` → `updateFilter()`. **Never** intercept Backspace/Delete/printable keys with `preventDefault()`. Only intercept arrows, space, enter, escape.
 
 ### Settings & Persistence
 
-- `musiccli-settings` — Appearance (colors, fonts, background, blur, progress bar), volume, music folder, lyrics state. Applied to `:root` CSS variables via `applyCssVars()`.
-- `musiccli-themes` — Named themes (built-in: "dark", "Claude Desktop"). Support export/import as JSON with embedded base64 image data.
-- `musiccli-playlists` + `musiccli-current-pl` — Named playlist storage. **Loaded synchronously** in `useState` initializer (not `useEffect`) so data is available before any child effect runs.
-- `musiccli-lang` — Language preference (en/zh/ja).
+All settings stored in localStorage under `musiccli-settings`. **Loaded synchronously** in `useState` initializer or at module level — never in `useEffect`.
 
-Built-in themes live in `SettingsContext.tsx` as `BUILTIN_THEMES`. User themes merge into the same localStorage key.
+- `musiccli-settings`: Colors, fonts, bg, blur, volume, musicFolder, lyrics config (20+ keys including lyrics colors/sizes/gap/align/shadow/mode/offset), seek settings, maxLines.
+- `musiccli-themes`: Named themes (built-in: "dark", "Claude Desktop"). Export/import as JSON with base64 images.
+- `musiccli-playlists` + `musiccli-current-pl`: Named playlist storage.
+- `musiccli-lang`: Language (en/zh/ja). Initialized synchronously at module load in `src/i18n/index.ts`.
+
+CSS variables on `:root` are the visual source of truth. `applyCssVars(s)` pushes settings to DOM. Save = merge + apply + localStorage.
 
 ### Floating Lyrics Window
 
-A second BrowserWindow (`transparent: true, alwaysOnTop: true`) loads the same Vite app with hash `#/lyrics`. The `App` component checks `window.location.hash` and renders `FloatingLyrics` component instead of the main UI. Theme sync happens via `sendLyricsTheme()` IPC.
+Separate BrowserWindow (`transparent: true, alwaysOnTop: true`), loads same app with `#/lyrics` hash. Fixed width 600px, auto-height via `ResizeObserver` + IPC `lyrics-window:auto-size`.
 
-### Dev vs Production
+**Theme sync**: Sent via `sendLyricsTheme()` IPC → main process stores `lastLyricsTheme` → replays on `did-finish-load`. Three sync points fire the same payload on a 200ms delay:
+1. `AppInitializer` startup effect
+2. `PlayerContext.setLyricsFloating(true)` on window open  
+3. `SettingsContext.saveSettings()` on any config change
 
-| Aspect | Dev (`npm start`) | Production |
-|--------|-------------------|------------|
-| Renderer source | Vite dev server (localhost:5173) | `dist/index.html` (built) |
-| Audio URLs | `file:///` (needs `webSecurity: false`) | `file:///` (same-origin, secure) |
-| DevTools | Auto-open | Closed |
+All floating lyrics CSS (`--lyrics-*`) has defaults on `:root`. IPC sets CSS variables on the lyrics window's document root. CSS `var()` reads directly without fallback (defaults are on `:root`).
+
+Shadow presets: `SHADOW_PRESETS` map in `SettingsContext.tsx` (large/medium/small → CSS text-shadow values).
+
+### LRC Timing Offset
+
+Per-track offset (ms) stored in `lrc/offsets.json` in the LRC directory. `lyric offset <ms>` writes via IPC `lrc:writeOffset`. On `loadLRC`, offsets are read via `lrc:readOffsets` and applied to parsed lines. Wrapped in try-catch so missing IPC doesn't crash lyrics loading.
+
+### Independent Lyrics States
+
+Terminal and floating lyrics are independent booleans (`lyricsTerminal`, `lyricsFloating`). Both can be on simultaneously. `lyric t` toggles terminal, `lyric f` toggles floating, `lyric off` disables both. Vertical mode (`lyric v`) cycles: off → vertical-rl → vertical-lr.
 
 ### Key Lessons Learned
 
-- **Don't fight the browser for text input.** Use `onInput` to read the result; only intercept keys that need semantic override (arrows, space, enter, escape).
-- **Load persisted state in `useState` initializer**, not `useEffect`. Otherwise child effects run before data is available.
-- **Use `useRef` for mutable state that must be read synchronously** across context boundaries (e.g., `playlistRef` in PlayerContext). Expose getter functions alongside snapshot values.
-- **Combine related state updates into single functions** that take the new value as a parameter (e.g., `updateFilter(newFilter)`) rather than two-step `setX()` + `calcY()` which suffers from batch timing.
-- **Standalone helper functions beat memoized context methods** for derived state. `filterItems(items, query)` can't have stale closures because it takes everything as arguments.
-- **IPC return type is `T | { error: string }`**, not `T`. Always check with `hasError()` before using.
+- **Don't fight the browser for text input.** Use `onInput`, only intercept semantic keys.
+- **Load persisted state synchronously** in `useState` initializer or module level, not `useEffect`.
+- **Combine related state updates into single functions** (e.g. `updateFilter(newFilter)` vs `setX()` + `calcY()`).
+- **Standalone helper functions > memoized context methods** for derived state (e.g. `filterItems(items, query)`).
+- **Module-level registration** for commands — survives HMR.
+- **200ms delay sync** is more reliable than complex multi-source sync for config that must survive restarts.
+- **`var()` in CSS can only have ONE fallback** — comma-separated values break. Define defaults on `:root` instead.
+- **React StrictMode double-invokes nested state setters** — use refs instead of `setOuter(prev => { setInner(...) })`.
+- **Context values created in render are always latest** but callbacks close over stale state — pass values as arguments, use refs.
