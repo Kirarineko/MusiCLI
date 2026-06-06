@@ -45,6 +45,7 @@ const defaults: AppSettings = {
   lyricsLocked: false,
   lyricsCurrentSize: 24,
   lyricsNextSize: 14,
+  lyricsVertical: 'off',
   progressFilled: '=',
   progressEmpty: ' ',
   progressWidth: 20,
@@ -180,6 +181,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         lyricsAlign: merged.lyricsAlign || 'center',
         lyricsCurrentSize: merged.lyricsCurrentSize || 24,
         lyricsNextSize: merged.lyricsNextSize || 14,
+        lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[merged.lyricsVertical || 'off'],
       });
     }
   }, []);

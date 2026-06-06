@@ -32,6 +32,7 @@ export interface AppSettings {
   lyricsLocked: boolean;
   lyricsCurrentSize: number;
   lyricsNextSize: number;
+  lyricsVertical: 'off' | 'rl' | 'lr';
   progressFilled: string;
   progressEmpty: string;
   progressWidth: number;

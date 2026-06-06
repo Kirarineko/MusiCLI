@@ -8,6 +8,18 @@ interface LyricsState {
 export function FloatingLyrics() {
   const [lines, setLines] = useState<LyricsState>({ current: '', next: [] });
 
+  // Auto-size window to fit content
+  useEffect(() => {
+    const el = document.getElementById('lyrics-container');
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect();
+      window.musicPlayer?.autoSizeLyrics(0, Math.ceil(r.height));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => {
     if (window.musicPlayer?.onLyricsUpdate) {
       window.musicPlayer.onLyricsUpdate((data) => {
@@ -29,6 +41,7 @@ export function FloatingLyrics() {
         if (data.lyricsShadow) root.style.setProperty('--lyrics-shadow', data.lyricsShadow);
         if (data.lyricsCurrentSize) root.style.setProperty('--lyrics-current-size', data.lyricsCurrentSize + 'px');
         if (data.lyricsNextSize) root.style.setProperty('--lyrics-next-size', data.lyricsNextSize + 'px');
+        if (data.lyricsVertical) root.style.setProperty('--lyrics-vertical', data.lyricsVertical);
         if (data.lyricsAlign) {
           root.style.setProperty('--lyrics-align', data.lyricsAlign);
           const flexMap: Record<string, string> = { left: 'flex-start', center: 'center', right: 'flex-end' };
@@ -48,7 +61,7 @@ export function FloatingLyrics() {
             {lines.current || '♪'}
           </div>
           {lines.next.map((text, i) => (
-            <div key={i} className="lyric-line next" style={{ opacity: 1 - i * 0.15 }}>
+            <div key={i} className="lyric-line next" style={{ opacity: 1 - i * 0.09 }}>
               {text}
             </div>
           ))}

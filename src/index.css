@@ -20,6 +20,7 @@
   --lyrics-align-flex: center;
   --lyrics-current-size: 24px;
   --lyrics-next-size: 14px;
+  --lyrics-vertical: horizontal-tb;
   --bg-img: none;
   --bg-blur: 0px;
   --font: "Consolas", "Courier New", "Fira Code", monospace;
@@ -254,14 +255,15 @@ cmd { color: var(--fg-bright); font-weight: bold; }
   gap: var(--lyrics-gap);
   text-align: var(--lyrics-align);
   width: 100%;
+  writing-mode: var(--lyrics-vertical);
 }
 
 #lyrics-drag-dot {
   position: fixed;
   top: 8px;
   right: 8px;
-  width: 10px;
-  height: 10px;
+  width: 0px;
+  height: 0px;
   border-radius: 50%;
   background: rgba(255,255,255,0.25);
   -webkit-app-region: no-drag;

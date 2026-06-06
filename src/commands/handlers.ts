@@ -524,7 +524,7 @@ export function registerAllCommands() {
       c.printLine(t('lyricFgSet', { hex: rest }), 'success');
     } else if (sub === 'next') {
       const n = parseInt(rest, 10);
-      if (isNaN(n) || n < 0 || n > 20) {
+      if (isNaN(n) || n < 0 || n > 10) {
         c.printLine(t('lyricNextSet', { v: getStoredSettings().lyricsNextCount || 1 }), 'info');
         return;
       }
@@ -595,6 +595,14 @@ export function registerAllCommands() {
       } else {
         c.printLine(wr.error || 'Error', 'error');
       }
+    } else if (sub === 'v' || sub === 'vertical') {
+      const s = getStoredSettings();
+      const cycle: Array<'off' | 'rl' | 'lr'> = ['off', 'rl', 'lr'];
+      const idx = cycle.indexOf(s.lyricsVertical as 'off' | 'rl' | 'lr');
+      const next = cycle[(idx + 1) % 3];
+      c.saveSettings({ lyricsVertical: next });
+      const label = next === 'off' ? t('lyricVerticalOff') : t('lyricVerticalOn') + ' (' + (next === 'rl' ? 'R→L' : 'L→R') + ')';
+      c.printLine(label, 'success');
     } else if (sub === 'lock') {
       const s = getStoredSettings();
       const cur = s.lyricsLocked;

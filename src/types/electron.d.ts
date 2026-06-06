@@ -32,6 +32,7 @@ export interface LyricsThemeData {
   lyricsAlign?: string;
   lyricsCurrentSize?: number;
   lyricsNextSize?: number;
+  lyricsVertical?: string;
 }
 
 export interface MusicPlayerAPI {
@@ -54,6 +55,7 @@ export interface MusicPlayerAPI {
   dirExists(dirPath: string): Promise<boolean>;
   showFloatingLyrics(): Promise<void>;
   setLyricsMouseEvents(enabled: boolean): void;
+  autoSizeLyrics(w: number, h: number): void;
   hideFloatingLyrics(): Promise<void>;
   sendLyricsUpdate(data: LyricsUpdateData): void;
   sendLyricsTheme(data: LyricsThemeData): void;

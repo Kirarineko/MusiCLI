@@ -11,39 +11,39 @@
     },
     "src/contexts/TerminalContext.tsx": {
       "ipo_ts": 1780723395327,
-      "edit_count": 14,
-      "last_lines": 261,
-      "last_ts": 1780743991821,
+      "edit_count": 15,
+      "last_lines": 262,
+      "last_ts": 1780750891306,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "ffdd1a80"
+      "last_content_hash": "9a557b00"
     },
     "node_modules/.tmp/tsconfig.app.tsbuildinfo": {
       "ipo_ts": 1780723420860,
-      "edit_count": 5,
+      "edit_count": 7,
       "last_lines": 1,
-      "last_ts": 1780741650245,
+      "last_ts": 1780751190598,
       "delisted": false,
       "last_source": "onEdit",
       "last_content_hash": "84ed4e09"
     },
     "src/commands/handlers.ts": {
       "ipo_ts": 1780723764417,
-      "edit_count": 13,
-      "last_lines": 888,
-      "last_ts": 1780743983223,
+      "edit_count": 16,
+      "last_lines": 896,
+      "last_ts": 1780751941533,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "b0a8265"
+      "last_content_hash": "982938f4"
     },
     "dist/index.html": {
       "ipo_ts": 1780723776896,
-      "edit_count": 28,
+      "edit_count": 34,
       "last_lines": 13,
-      "last_ts": 1780744177492,
+      "last_ts": 1780751948803,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "397d2bfa"
+      "last_content_hash": "2b5d5767"
     },
     "src/components/InputLine.tsx": {
       "ipo_ts": 1780723931392,
@@ -56,84 +56,84 @@
     },
     "src/i18n/translations.ts": {
       "ipo_ts": 1780724299531,
-      "edit_count": 20,
-      "last_lines": 662,
-      "last_ts": 1780743968509,
+      "edit_count": 23,
+      "last_lines": 665,
+      "last_ts": 1780751742582,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "10bf4ac7"
+      "last_content_hash": "42eb8961"
     },
     "src/contexts/PlayerContext.tsx": {
       "ipo_ts": 1780725033995,
-      "edit_count": 26,
-      "last_lines": 451,
-      "last_ts": 1780744168596,
+      "edit_count": 28,
+      "last_lines": 452,
+      "last_ts": 1780751923400,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "fdfb18d7"
+      "last_content_hash": "7879ce8d"
     },
     "src/App.tsx": {
       "ipo_ts": 1780725113390,
-      "edit_count": 6,
-      "last_lines": 123,
-      "last_ts": 1780742876024,
+      "edit_count": 8,
+      "last_lines": 124,
+      "last_ts": 1780751928830,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "9a1539ec"
+      "last_content_hash": "9166e0ee"
     },
     "electron/main.js": {
       "ipo_ts": 1780725383437,
-      "edit_count": 16,
-      "last_lines": 322,
-      "last_ts": 1780743916706,
+      "edit_count": 21,
+      "last_lines": 329,
+      "last_ts": 1780751414708,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "bbe0b9e1"
+      "last_content_hash": "9d42ddfc"
     },
     "src/index.css": {
       "ipo_ts": 1780735582795,
-      "edit_count": 37,
-      "last_lines": 286,
-      "last_ts": 1780742886604,
+      "edit_count": 40,
+      "last_lines": 288,
+      "last_ts": 1780752047003,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "bcdc357"
+      "last_content_hash": "e53efe08"
     },
     "src/contexts/SettingsContext.tsx": {
       "ipo_ts": 1780737984221,
-      "edit_count": 37,
-      "last_lines": 359,
-      "last_ts": 1780742866562,
+      "edit_count": 41,
+      "last_lines": 361,
+      "last_ts": 1780751918921,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "dc04d30c"
+      "last_content_hash": "3454410e"
     },
     "src/types/index.ts": {
       "ipo_ts": 1780738374014,
-      "edit_count": 5,
-      "last_lines": 113,
-      "last_ts": 1780742852488,
+      "edit_count": 7,
+      "last_lines": 114,
+      "last_ts": 1780751904841,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "1440743d"
+      "last_content_hash": "33acb5ef"
     },
     "src/components/FloatingLyrics.tsx": {
       "ipo_ts": 1780738444000,
-      "edit_count": 6,
-      "last_lines": 59,
-      "last_ts": 1780742891326,
+      "edit_count": 13,
+      "last_lines": 72,
+      "last_ts": 1780751933673,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "5c488016"
+      "last_content_hash": "76371b1d"
     },
     "src/types/electron.d.ts": {
       "ipo_ts": 1780741507265,
-      "edit_count": 3,
-      "last_lines": 72,
-      "last_ts": 1780743928364,
+      "edit_count": 6,
+      "last_lines": 74,
+      "last_ts": 1780751913915,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "c14aa3ff"
+      "last_content_hash": "5e3be025"
     },
     "dist/assets/index-CXw6-ekC.css": {
       "ipo_ts": 1780742919044,
@@ -146,12 +146,12 @@
     },
     "electron/preload.js": {
       "ipo_ts": 1780743923091,
-      "edit_count": 1,
-      "last_lines": 30,
-      "last_ts": 1780743923091,
+      "edit_count": 2,
+      "last_lines": 31,
+      "last_ts": 1780751167739,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "a0c5cf44"
+      "last_content_hash": "d1bb42ca"
     },
     "dist/assets/index-CswxtnPC.js": {
       "ipo_ts": 1780744177488,
@@ -161,6 +161,69 @@
       "delisted": false,
       "last_source": "onEdit",
       "last_content_hash": "8ecc77d6"
+    },
+    "dist/assets/index-C4MfINHP.js": {
+      "ipo_ts": 1780750783427,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780750783427,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "adb4c4c"
+    },
+    "dist/assets/index-B8ncoy4Z.css": {
+      "ipo_ts": 1780750898400,
+      "edit_count": 5,
+      "last_lines": 1,
+      "last_ts": 1780751948794,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "f4b632dd"
+    },
+    "dist/assets/index-CVounjOr.js": {
+      "ipo_ts": 1780750898405,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780750898405,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "3794092"
+    },
+    "dist/assets/index-DHzd3sxW.js": {
+      "ipo_ts": 1780751192130,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780751192130,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "2ab3ec85"
+    },
+    "dist/assets/index-UWrGlQKO.js": {
+      "ipo_ts": 1780751427381,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780751427381,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "76e67f0f"
+    },
+    "dist/assets/index-CNms1u1O.js": {
+      "ipo_ts": 1780751751114,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780751751114,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "a138e44c"
+    },
+    "dist/assets/index-BftuR5VV.js": {
+      "ipo_ts": 1780751948800,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780751948800,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "af0c9200"
     }
   }
 }

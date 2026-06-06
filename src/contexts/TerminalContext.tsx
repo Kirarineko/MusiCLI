@@ -137,6 +137,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     printRaw('    lyric size cur|n <px> ' + t('helpLyricSize'));
     printRaw('    lyric align <l|c|r>   ' + t('helpLyricAlign'));
     printRaw('    lyric lock            ' + t('helpLyricLock'));
+    printRaw('    lyric v               ' + t('helpLyricVertical'));
     printRaw('    lyric offset <ms>     ' + t('helpLyricOffset'));
     printRaw('    bar [width|char]      ' + t('helpProgress'));
     printLine('  ' + t('helpGroupPl'), 'dim');

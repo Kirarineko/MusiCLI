@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('musicPlayer', {
   // Floating lyrics
   showFloatingLyrics: () => ipcRenderer.invoke('lyrics-window:show'),
   setLyricsMouseEvents: (enabled) => ipcRenderer.send('lyrics-window:set-mouse-events', enabled),
+  autoSizeLyrics: (w, h) => ipcRenderer.send('lyrics-window:auto-size', w, h),
   hideFloatingLyrics: () => ipcRenderer.invoke('lyrics-window:hide'),
   sendLyricsUpdate: (data) => ipcRenderer.send('lyrics-window:send', data),
   sendLyricsTheme: (data) => ipcRenderer.send('lyrics-window:update-theme', data),

@@ -353,6 +353,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           lyricsAlign: s2.lyricsAlign || 'center',
           lyricsCurrentSize: s2.lyricsCurrentSize || 24,
           lyricsNextSize: s2.lyricsNextSize || 14,
+          lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[s2.lyricsVertical || 'off'],
         });
       }, 200);
     } else {

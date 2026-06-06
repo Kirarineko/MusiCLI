@@ -87,6 +87,7 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
         lyricsAlign: s.lyricsAlign || 'center',
         lyricsCurrentSize: s.lyricsCurrentSize || 24,
         lyricsNextSize: s.lyricsNextSize || 14,
+        lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[s.lyricsVertical || 'off'],
       });
     }, 200);
     return () => clearTimeout(timer);

@@ -249,9 +249,10 @@ function createLyricsWindow() {
   }
   lyricsWindow = new BrowserWindow({
     width: 600,
-    height: 180,
-    minWidth: 300,
-    minHeight: 100,
+    height: 400,
+    minWidth: 600,
+    maxWidth: 600,
+    minHeight: 80,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -278,6 +279,12 @@ function createLyricsWindow() {
   lyricsWindow.setAlwaysOnTop(true, 'floating');
   lyricsWindow.on('closed', () => { lyricsWindow = null; });
 }
+
+ipcMain.on('lyrics-window:auto-size', (_event, _w, h) => {
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+    lyricsWindow.setSize(600, Math.max(80, h + 30), { animate: false });
+  }
+});
 
 ipcMain.on('lyrics-window:set-mouse-events', (_event, enabled) => {
   if (lyricsWindow && !lyricsWindow.isDestroyed()) {
