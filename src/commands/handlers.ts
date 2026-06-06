@@ -11,6 +11,10 @@ function hasError(obj: unknown): obj is { error: string } {
   return typeof obj === 'object' && obj !== null && 'error' in obj;
 }
 
+function sanitizeName(name: string): string {
+  return name.replace(/[<>:"/\\|?*]/g, '_').slice(0, 120);
+}
+
 // These will be set by the app initialization
 let _ctx: CommandContext | null = null;
 
@@ -70,7 +74,8 @@ export interface CommandContext {
   listAllPlaylists: () => { name: string; desc: string; createdAt: string; trackCount: number; isCurrent: boolean }[];
   getCurrentPlaylist: () => { name: string; desc: string; tracks: string[] } | null;
   getPlaylistData: (name: string) => import('../types').Playlist | null;
-  createPlaylist: (name: string, desc?: string) => { success: boolean; error?: string };
+  createPlaylist: (name: string, desc?: string, sharer?: string) => { success: boolean; error?: string };
+  createPlaylistWithTracks: (name: string, desc: string | undefined, sharer: string | undefined, tracks: string[]) => boolean;
   deletePlaylist: (name: string) => { success: boolean; error?: string };
   editPlaylist: (name: string, field: string, value: string) => { success: boolean; error?: string };
   ensureDefault: () => void;
@@ -877,6 +882,8 @@ export function registerAllCommands() {
       c.printRaw('  ' + t('plDesc') + ': ' + (info.desc || '-'));
       c.printRaw('  ' + t('plTracks') + ': ' + info.tracks.length);
       c.printRaw('  ' + t('plCreated2') + ': ' + new Date(info.createdAt).toLocaleString());
+      if (info.updatedAt) c.printRaw('  ' + t('plUpdatedAt') + ': ' + new Date(info.updatedAt).toLocaleString());
+      if (info.sharer) c.printRaw('  ' + t('plSharer') + ': ' + info.sharer);
     } else {
       c.printLine(t('unknownCmd', { cmd: escapeHtml('pl ' + sub) }), 'error');
     }
@@ -889,6 +896,255 @@ export function registerAllCommands() {
     const modeKey = 'mode' + mode.charAt(0).toUpperCase() + mode.slice(1).replace(/-./g, x => x[1].toUpperCase());
     c.printLine(t('modeChanged', { mode: t(modeKey) }), 'success');
   }, 'helpMode');
+
+  // sync
+  register('sync', ['share'], async (args) => {
+    const c = ctx();
+    const sub = (args[0] || '').toLowerCase();
+    const rest = args.slice(1);
+
+    if (sub === 'pl' || sub === 'playlist') {
+      const action = (rest[0] || '').toLowerCase();
+      if (action === 'export') {
+        // === Export playlist ===
+        const plName = rest.slice(1).join(' ') || c.getCurrentPlName();
+        const pl = c.getPlaylistData(plName);
+        if (!pl) { c.printLine(t('plNotFound'), 'error'); return; }
+        if (pl.tracks.length === 0) { c.printLine(t('playlistEmpty'), 'info'); return; }
+
+        const s = getStoredSettings();
+        const musicFolder = s.musicFolder || '';
+
+        // Select save location
+        const savePath = await window.musicPlayer.saveFileDialog(
+          `MusicLI_${sanitizeName(plName)}_sync.zip`,
+          [{ name: 'ZIP Archive', extensions: ['zip'] }],
+        );
+        if (!savePath) return;
+
+        // Temp dir for building the package
+        const tmpDir = savePath.replace(/\.zip$/i, '') + '_tmp';
+        const audioDir = tmpDir + '/audio';
+        const lrcDir = tmpDir + '/lrc';
+        await window.musicPlayer.mkdir(audioDir);
+        await window.musicPlayer.mkdir(lrcDir);
+
+        c.printLine(t('syncExporting', { n: pl.tracks.length }), 'info');
+
+        // Collect LRC offsets from config files
+        const lrcOffsets: Record<string, number> = {};
+        const trackMetas: import('../types').SyncTrackMeta[] = [];
+
+        for (let i = 0; i < pl.tracks.length; i++) {
+          const src = pl.tracks[i];
+          const meta = await window.musicPlayer.readMetadata(src);
+          if (hasError(meta)) continue;
+
+          const idx = String(i + 1).padStart(2, '0');
+          const ext = src.split('.').pop() || 'mp3';
+          const safeTitle = sanitizeName(meta.title || getFileName(src));
+          const baseName = `${idx} - ${safeTitle}`;
+
+          // Copy audio
+          const audioDest = audioDir + '/' + baseName + '.' + ext;
+          const copyResult = await window.musicPlayer.copyFile(src, audioDest);
+          if (hasError(copyResult)) {
+            c.printLine(t('syncCopyError', { file: baseName + '.' + ext, err: copyResult.error }), 'error');
+          }
+
+          // Find & copy LRC file
+          let lrcFile: string | undefined;
+          let lrcOffset: number | undefined;
+          if (musicFolder) {
+            const found = await window.musicPlayer.findLrc(src, musicFolder);
+            if (found && !hasError(found)) {
+              const lrcDest = lrcDir + '/' + baseName + '.lrc';
+              await window.musicPlayer.copyFile(found, lrcDest);
+              lrcFile = baseName + '.lrc';
+
+              // Read offset for this track
+              const lrcParentDir = found.substring(0, Math.max(found.lastIndexOf('/'), found.lastIndexOf('\\')));
+              const offsets = await window.musicPlayer.readLrcOffsets(lrcParentDir);
+              if (offsets && !hasError(offsets)) {
+                const trackKey = getFileName(src);
+                if (offsets[trackKey]) {
+                  lrcOffset = offsets[trackKey];
+                  lrcOffsets[baseName + '.lrc'] = lrcOffset;
+                }
+              }
+            }
+          }
+
+          trackMetas.push({
+            filename: baseName + '.' + ext,
+            title: meta.title || getFileName(src),
+            artist: meta.artist || 'Unknown Artist',
+            album: meta.album || '',
+            year: meta.year || null,
+            genre: meta.genre || null,
+            duration: meta.duration || 0,
+            lrcFile,
+            ...(lrcOffset != null ? { lrcOffset } : {}),
+          });
+        }
+
+        const manifest: import('../types').SyncManifest = {
+          version: 1,
+          type: 'playlist',
+          source: 'MusicLI',
+          playlist: {
+            name: pl.name,
+            desc: pl.desc || '',
+            createdAt: pl.createdAt,
+            updatedAt: new Date().toISOString(),
+            sharer: pl.sharer || '',
+            tracks: trackMetas,
+          },
+          lrcOffsets: Object.keys(lrcOffsets).length > 0 ? lrcOffsets : undefined,
+        };
+        await window.musicPlayer.writeFile(tmpDir + '/manifest.json', JSON.stringify(manifest, null, 2));
+
+        // README.txt
+        const readme = 'NekoCraft\nhttps://github.com/KirariNeko/MusicLI\n';
+        await window.musicPlayer.writeFile(tmpDir + '/README.txt', readme);
+
+        // Create ZIP
+        c.printLine(t('syncZipping'), 'info');
+        const zipResult = await window.musicPlayer.createZip(tmpDir, savePath);
+        if (hasError(zipResult)) {
+          c.printLine(t('syncZipError', { err: zipResult.error }), 'error');
+        } else {
+          c.printLine(t('syncExported', { path: savePath, n: pl.tracks.length }), 'success');
+        }
+      } else if (action === 'import') {
+        // === Import playlist ===
+        const filePath = await window.musicPlayer.selectSyncFile();
+        if (!filePath) return;
+
+        const s = getStoredSettings();
+        const musicFolder = s.musicFolder || (await window.musicPlayer.getDefaultMusicDir());
+        const isZip = filePath.toLowerCase().endsWith('.zip');
+
+        let manifest: import('../types').SyncManifest;
+        let audioSrcDir: string;
+        let lrcSrcDir: string;
+
+        if (isZip) {
+          // Extract ZIP to temp dir
+          const extractDir = filePath.replace(/\.zip$/i, '') + '_extracted';
+          c.printLine(t('syncExtracting'), 'info');
+          const extractResult = await window.musicPlayer.extractZip(filePath, extractDir);
+          if (hasError(extractResult)) {
+            c.printLine(t('syncZipError', { err: extractResult.error }), 'error');
+            return;
+          }
+          // Read manifest from extracted dir
+          const raw = await window.musicPlayer.readFile(extractDir + '/manifest.json');
+          if (hasError(raw) || !raw) { c.printLine(t('syncInvalidManifest'), 'error'); return; }
+          try { manifest = JSON.parse(raw); } catch { c.printLine(t('syncInvalidManifest'), 'error'); return; }
+          audioSrcDir = extractDir + '/audio';
+          lrcSrcDir = extractDir + '/lrc';
+        } else {
+          // Legacy: plain manifest.json (folder mode)
+          const raw = await window.musicPlayer.readFile(filePath);
+          if (hasError(raw) || !raw) { c.printLine(t('syncInvalidManifest'), 'error'); return; }
+          try { manifest = JSON.parse(raw); } catch { c.printLine(t('syncInvalidManifest'), 'error'); return; }
+          const pkgDir = filePath.substring(0, Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')));
+          audioSrcDir = pkgDir + '/audio';
+          lrcSrcDir = pkgDir + '/lrc';
+        }
+
+        if (!manifest.playlist || !manifest.playlist.tracks) {
+          c.printLine(t('syncInvalidManifest'), 'error'); return;
+        }
+
+        // Dedicated import folder per playlist
+        const importDir = musicFolder.replace(/[/\\]$/, '') + '/MusicLI_Imports/' + sanitizeName(manifest.playlist.name);
+        await window.musicPlayer.mkdir(importDir);
+
+        c.printLine(t('syncImporting', { n: manifest.playlist.tracks.length }), 'info');
+
+        const newTracks: string[] = [];
+        for (const t of manifest.playlist.tracks) {
+          // Copy audio
+          const audioSrc = audioSrcDir + '/' + t.filename;
+          const audioDest = importDir + '/' + t.filename;
+          const copyResult = await window.musicPlayer.copyFile(audioSrc, audioDest);
+          if (hasError(copyResult)) {
+            c.printLine(t('syncCopyError', { file: t.filename, err: copyResult.error }), 'error');
+            continue;
+          }
+          newTracks.push(audioDest);
+
+          // Copy LRC if present
+          if (t.lrcFile) {
+            const lrcSrc = lrcSrcDir + '/' + t.lrcFile;
+            const lrcDest = importDir + '/' + t.lrcFile;
+            await window.musicPlayer.copyFile(lrcSrc, lrcDest);
+          }
+        }
+
+        // Restore LRC offsets
+        if (manifest.lrcOffsets && Object.keys(manifest.lrcOffsets).length > 0) {
+          for (const [lrcName, offset] of Object.entries(manifest.lrcOffsets)) {
+            // lrcName is like "01 - Song.lrc", derive track name
+            const trackName = lrcName.replace(/\.lrc$/i, '');
+            await window.musicPlayer.writeLrcOffset(importDir, trackName, offset);
+          }
+        }
+
+        // Create new playlist (avoid name collision with _1, _2, ...)
+        let plName = manifest.playlist.name;
+        if (c.getPlaylistData(plName)) {
+          let n = 1;
+          while (c.getPlaylistData(plName + '_' + n)) n++;
+          plName = plName + '_' + n;
+        }
+        c.createPlaylistWithTracks(plName, manifest.playlist.desc, manifest.playlist.sharer, newTracks);
+        c.printLine(t('syncImported', { name: plName, n: newTracks.length }), 'success');
+      } else {
+        c.printLine(t('syncUsage'), 'info');
+      }
+    } else if (sub === 'theme') {
+      const action = (rest[0] || '').toLowerCase();
+      const name = rest.slice(1).join(' ');
+      if (action === 'export') {
+        const theme = name ? c.exportTheme(name) : c.exportTheme(c.themeNames()[0] || '');
+        if (!theme) { c.printLine(t('themeNotFound'), 'error'); return; }
+        if (!theme['bg-img-data']) {
+          const st = getStoredSettings();
+          const imgPath = st['bg-img'];
+          if (imgPath) {
+            try {
+              const b64 = await window.musicPlayer.readFileBase64(imgPath);
+              if (!hasError(b64)) theme['bg-img-data'] = b64;
+            } catch { /* ignore */ }
+          }
+        }
+        const jsonStr = JSON.stringify(theme, null, 2);
+        const savePath = await window.musicPlayer.saveFileDialog((name || 'theme') + '.json');
+        if (!savePath) return;
+        const wr = await window.musicPlayer.writeFile(savePath, jsonStr);
+        if (wr.error) { c.printLine(wr.error, 'error'); return; }
+        c.printLine(t('syncThemeExported'), 'success');
+      } else if (action === 'import') {
+        const filePath = await window.musicPlayer.openThemeDialog();
+        if (!filePath) return;
+        const result = await window.musicPlayer.readFile(filePath);
+        if (hasError(result) || !result) { c.printLine(t('themeImportError'), 'error'); return; }
+        try {
+          const theme = JSON.parse(result);
+          if (!theme.name) { c.printLine(t('themeImportError'), 'error'); return; }
+          c.saveCurrentTheme(theme.name);
+          c.printLine(t('syncThemeImported', { name: theme.name }), 'success');
+        } catch { c.printLine(t('themeImportError'), 'error'); }
+      } else {
+        c.printLine(t('syncUsage'), 'info');
+      }
+    } else {
+      c.printLine(t('syncUsage'), 'info');
+    }
+  }, 'helpSync');
 
   // quit
   register('quit', ['exit', 'q'], () => window.close(), 'helpQuit');

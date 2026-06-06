@@ -153,6 +153,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     printRaw('    set font size|weight|import|clear');
     printRaw('    set maxlines <n>      ' + t('helpMaxlines'));
     printRaw('    theme list|save|load|delete|export|import  ' + t('helpTheme'));
+    printRaw('    sync pl|theme export|import  ' + t('helpSync'));
     printLine('  ' + t('helpGroupSystem'), 'dim');
     printRaw('    lang <en|zh|ja>       ' + t('helpLang'));
     printRaw('    reset                 ' + t('helpReset'));

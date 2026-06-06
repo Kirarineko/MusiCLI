@@ -62,7 +62,36 @@ export interface Playlist {
   name: string;
   desc: string;
   createdAt: string;
+  updatedAt?: string;
+  sharer?: string;
   tracks: string[];
+}
+
+export interface SyncTrackMeta {
+  filename: string;
+  title: string;
+  artist: string;
+  album: string;
+  year: number | null;
+  genre: string | null;
+  duration: number;
+  lrcFile?: string;
+  lrcOffset?: number;
+}
+
+export interface SyncManifest {
+  version: number;
+  type: 'playlist';
+  source: string;
+  playlist: {
+    name: string;
+    desc: string;
+    createdAt: string;
+    updatedAt: string;
+    sharer: string;
+    tracks: SyncTrackMeta[];
+  };
+  lrcOffsets?: Record<string, number>;
 }
 
 export interface PlaylistInfo {

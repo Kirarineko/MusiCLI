@@ -31,4 +31,11 @@ contextBridge.exposeInMainWorld('musicPlayer', {
   // Config file I/O
   readConfig: (musicFolder, key) => ipcRenderer.invoke('config:read', musicFolder, key),
   writeConfig: (musicFolder, key, data) => ipcRenderer.invoke('config:write', musicFolder, key, data),
+  // Sync / sharing
+  selectSaveDir: () => ipcRenderer.invoke('dialog:saveDir'),
+  selectSyncFile: () => ipcRenderer.invoke('dialog:openSync'),
+  copyFile: (src, dest) => ipcRenderer.invoke('fs:copyFile', src, dest),
+  mkdir: (dir) => ipcRenderer.invoke('fs:mkdir', dir),
+  createZip: (sourceDir, destZip) => ipcRenderer.invoke('fs:createZip', sourceDir, destZip),
+  extractZip: (zipPath, destDir) => ipcRenderer.invoke('fs:extractZip', zipPath, destDir),
 });

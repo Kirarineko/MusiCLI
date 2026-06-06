@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execSync } = require('child_process');
 
 let mainWindow;
 let lyricsWindow = null;
@@ -241,6 +242,82 @@ ipcMain.handle('app:userDataPath', () => {
 });
 
 // --- Config file I/O ---
+// --- Sync / sharing ---
+ipcMain.handle('dialog:saveDir', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Export Directory',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('dialog:openSync', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select MusicLI Sync File',
+    filters: [
+      { name: 'MusicLI Sync Package', extensions: ['zip'] },
+      { name: 'MusicLI Manifest', extensions: ['json'] },
+    ],
+    properties: ['openFile'],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('fs:copyFile', async (_event, src, dest) => {
+  try {
+    const destDir = path.dirname(dest);
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(src, dest);
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('fs:mkdir', async (_event, dir) => {
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Helper: run a PowerShell command with Unicode-safe Base64 encoding
+function runPowerShell(script) {
+  const psPath = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+  // Encode as UTF-16LE then Base64 — safe for paths with CJK characters
+  const buf = Buffer.from(script, 'utf16le');
+  const encoded = buf.toString('base64');
+  return execSync(
+    `"${psPath}" -NoProfile -EncodedCommand ${encoded}`,
+    { timeout: 120000, windowsHide: true },
+  );
+}
+
+ipcMain.handle('fs:createZip', async (_event, sourceDir, destZip) => {
+  try {
+    const zipDir = path.dirname(destZip);
+    if (!fs.existsSync(zipDir)) fs.mkdirSync(zipDir, { recursive: true });
+    if (fs.existsSync(destZip)) fs.unlinkSync(destZip);
+    // Use single-quoted paths in the PS script to handle spaces/special chars
+    runPowerShell(`$ProgressPreference='SilentlyContinue'; Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${destZip}' -Force`);
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('fs:extractZip', async (_event, zipPath, destDir) => {
+  try {
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    runPowerShell(`$ProgressPreference='SilentlyContinue'; Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force`);
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('config:read', async (_event, musicFolder, key) => {
   try {
     const filePath = path.join(musicFolder, 'config', `${key}.json`);

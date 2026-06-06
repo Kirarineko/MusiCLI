@@ -72,6 +72,7 @@ export function InputLine() {
     getCurrentPlaylist: playlists.getCurrentPlaylist,
     getPlaylistData: playlists.getPlaylistData,
     createPlaylist: playlists.createPlaylist,
+    createPlaylistWithTracks: playlists.createPlaylistWithTracks,
     deletePlaylist: playlists.deletePlaylist,
     editPlaylist: playlists.editPlaylist,
     ensureDefault: playlists.ensureDefault,

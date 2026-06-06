@@ -64,6 +64,12 @@ export interface MusicPlayerAPI {
   onLyricsVisibilityChanged(callback: (data: { visible: boolean }) => void): void;
   readConfig(musicFolder: string, key: string): Promise<any | null | { error: string }>;
   writeConfig(musicFolder: string, key: string, data: any): Promise<{ success?: boolean; error?: string }>;
+  selectSaveDir(): Promise<string | null>;
+  selectSyncFile(): Promise<string | null>;
+  copyFile(src: string, dest: string): Promise<{ success?: boolean; error?: string }>;
+  mkdir(dir: string): Promise<{ success?: boolean; error?: string }>;
+  createZip(sourceDir: string, destZip: string): Promise<{ success?: boolean; error?: string }>;
+  extractZip(zipPath: string, destDir: string): Promise<{ success?: boolean; error?: string }>;
 }
 
 declare global {

@@ -15,7 +15,8 @@ interface PlaylistContextValue {
   currentPlName: string;
   /** Register player functions so we can sync playlist -> player */
   registerPlayerSync: (sync: PlayerSync) => void;
-  createPlaylist: (name: string, desc?: string) => { success: boolean; error?: string };
+  createPlaylist: (name: string, desc?: string, sharer?: string) => { success: boolean; error?: string };
+  createPlaylistWithTracks: (name: string, desc: string | undefined, sharer: string | undefined, tracks: string[]) => boolean;
   deletePlaylist: (name: string) => { success: boolean; error?: string };
   switchPlaylist: (name: string) => Playlist | { candidates: string[] } | null;
   /** Add tracks to current playlist AND sync to player */
@@ -102,13 +103,28 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     if (changed) persist(pls, cur);
   }, [playlists, currentPlName, persist]);
 
-  const createPlaylist = useCallback((name: string, desc?: string) => {
+  const createPlaylist = useCallback((name: string, desc?: string, sharer?: string) => {
     const pls = { ...playlists };
     if (pls[name]) return { success: false, error: 'duplicate' };
-    pls[name] = { name, desc: desc || '', createdAt: new Date().toISOString(), tracks: [] };
+    pls[name] = { name, desc: desc || '', createdAt: new Date().toISOString(), tracks: [], sharer: sharer || undefined };
     persist(pls, currentPlName);
     return { success: true };
   }, [playlists, currentPlName, persist]);
+
+  /** Atomically create playlist + switch to it + set tracks. Avoids stale-closure issues. */
+  const createPlaylistWithTracks = useCallback((name: string, desc: string | undefined, sharer: string | undefined, tracks: string[]) => {
+    const pls = { ...playlists };
+    if (pls[name]) return false;
+    const now = new Date().toISOString();
+    pls[name] = { name, desc: desc || '', createdAt: now, updatedAt: now, tracks, sharer: sharer || undefined };
+    persist(pls, name);
+    // Sync to player
+    if (playerSyncRef.current) {
+      playerSyncRef.current.clearPlaylist();
+      playerSyncRef.current.addToPlaylist(tracks);
+    }
+    return true;
+  }, [playlists, persist]);
 
   const deletePlaylist = useCallback((name: string) => {
     const pls = { ...playlists };
@@ -196,6 +212,8 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
       if (cur === name) cur = value;
     } else if (field === 'desc' || field === 'description') {
       pl.desc = value;
+    } else if (field === 'sharer') {
+      pl.sharer = value || undefined;
     } else {
       return { success: false, error: 'badField' };
     }
@@ -242,7 +260,7 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     <PlaylistContext.Provider value={{
       playlists, currentPlName,
       registerPlayerSync,
-      createPlaylist, deletePlaylist, switchPlaylist,
+      createPlaylist, createPlaylistWithTracks, deletePlaylist, switchPlaylist,
       addTracksToCurrent, replaceCurrentTracks,
       editPlaylist, getCurrentPlaylist, getCurrentPlName,
       listAllPlaylists, getPlaylistData,

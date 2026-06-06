@@ -135,17 +135,6 @@
       "last_source": "onEdit",
       "last_content_hash": "1d59c92b"
     },
-    "dist/assets/index-CXw6-ekC.css": {
-      "ipo_ts": 1780742919044,
-      "edit_count": 4,
-      "last_lines": 1,
-      "last_ts": 1780744177481,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "e4b3a374",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
     "electron/preload.js": {
       "ipo_ts": 1780743923091,
       "edit_count": 3,
@@ -154,94 +143,6 @@
       "delisted": false,
       "last_source": "onEdit",
       "last_content_hash": "d970b351"
-    },
-    "dist/assets/index-CswxtnPC.js": {
-      "ipo_ts": 1780744177488,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780744177488,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "8ecc77d6",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
-    "dist/assets/index-C4MfINHP.js": {
-      "ipo_ts": 1780750783427,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780750783427,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "adb4c4c",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
-    "dist/assets/index-B8ncoy4Z.css": {
-      "ipo_ts": 1780750898400,
-      "edit_count": 5,
-      "last_lines": 1,
-      "last_ts": 1780751948794,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "f4b632dd",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
-    "dist/assets/index-CVounjOr.js": {
-      "ipo_ts": 1780750898405,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780750898405,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "3794092",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
-    "dist/assets/index-DHzd3sxW.js": {
-      "ipo_ts": 1780751192130,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780751192130,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "2ab3ec85",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
-    "dist/assets/index-UWrGlQKO.js": {
-      "ipo_ts": 1780751427381,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780751427381,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "76e67f0f",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
-    "dist/assets/index-CNms1u1O.js": {
-      "ipo_ts": 1780751751114,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780751751114,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "a138e44c",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
-    },
-    "dist/assets/index-BftuR5VV.js": {
-      "ipo_ts": 1780751948800,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780751948800,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "af0c9200",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
     },
     "src/configStore.ts": {
       "ipo_ts": 1780752977565,
@@ -260,17 +161,6 @@
       "delisted": false,
       "last_source": "onEdit",
       "last_content_hash": "69375df2"
-    },
-    "dist/assets/index-DRjLiQa3.js": {
-      "ipo_ts": 1780753170931,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780753170931,
-      "delisted": true,
-      "last_source": "onEdit",
-      "last_content_hash": "7134a000",
-      "delisted_at": 1780755816848,
-      "delist_rounds": 0
     },
     "dist/assets/index-DjBxqiFX.css": {
       "ipo_ts": 1780753170934,
