@@ -570,6 +570,31 @@ export function registerAllCommands() {
         c.saveSettings({ lyricsAlign: 'center' });
         c.printLine(t('lyricAlignSet', { v: 'center' }), 'success');
       }
+    } else if (sub === 'offset') {
+      const idx = c.currentIndex;
+      if (idx < 0 || idx >= c.playlist.length) {
+        c.printLine(t('noTrackLoaded'), 'info');
+        return;
+      }
+      const mp3Path = c.playlist[idx];
+      const s = getStoredSettings();
+      const lrcDir = (s.musicFolder || mp3Path.split(/[/\\]/).slice(0, -1).join('/')) + '/lrc';
+      const trackName = (mp3Path.split(/[/\\]/).pop() || '').replace(/\.[^.]+$/, '.lrc');
+      const ms = parseInt(rest, 10);
+      if (isNaN(ms)) {
+        const offsets = await window.musicPlayer.readLrcOffsets(lrcDir);
+        const cur = (!hasError(offsets) && offsets[trackName]) ? offsets[trackName] : 0;
+        c.printLine(t('lyricOffsetSet', { v: cur }), 'info');
+        return;
+      }
+      const wr = await window.musicPlayer.writeLrcOffset(lrcDir, trackName, ms);
+      if (!hasError(wr)) {
+        c.printLine(ms === 0 ? t('lyricOffsetCleared') : t('lyricOffsetSet', { v: ms }), 'success');
+        // Reload LRC to apply offset immediately
+        c.loadLRC(mp3Path);
+      } else {
+        c.printLine(wr.error || 'Error', 'error');
+      }
     } else if (sub === 'lock') {
       const s = getStoredSettings();
       const cur = s.lyricsLocked;

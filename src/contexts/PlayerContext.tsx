@@ -259,6 +259,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return false;
     }
     const lines = parseLRC(result as string);
+    // Apply timing offset if configured for this track (safe: never fails on missing IPC)
+    try {
+      const parentDir = mp3Path.substring(0, Math.max(mp3Path.lastIndexOf('/'), mp3Path.lastIndexOf('\\')));
+      const offsets = await window.musicPlayer.readLrcOffsets(parentDir + '/lrc');
+      const trackName = (mp3Path.split(/[/\\]/).pop() || '').replace(/\.[^.]+$/, '.lrc');
+      if (!hasError(offsets) && offsets[trackName]) {
+        for (const l of lines) l.time += offsets[trackName] / 1000;
+      }
+    } catch { /* offset feature unavailable (old preload) — ignore */ }
     console.log('[lrc] loadLRC: found', lines.length, 'lines for', mp3Path);
     setLyricsLines(lines);
     return lines.length > 0;

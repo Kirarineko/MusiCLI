@@ -41,6 +41,8 @@ export interface MusicPlayerAPI {
   selectFont(): Promise<string | null>;
   listAudioFiles(dirPath: string): Promise<string[] | { error: string }>;
   findLrc(mp3Path: string, rootDir: string): Promise<string | null | { error: string }>;
+  readLrcOffsets(lrcDir: string): Promise<Record<string, number> | { error: string }>;
+  writeLrcOffset(lrcDir: string, trackName: string, offsetMs: number): Promise<{ success?: boolean; error?: string }>;
   readMetadata(filePath: string): Promise<MetadataResult>;
   readFile(filePath: string): Promise<string | { error: string }>;
   readFileBase64(filePath: string): Promise<string | { error: string }>;

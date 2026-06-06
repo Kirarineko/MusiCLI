@@ -11,12 +11,12 @@
     },
     "src/contexts/TerminalContext.tsx": {
       "ipo_ts": 1780723395327,
-      "edit_count": 13,
-      "last_lines": 260,
-      "last_ts": 1780743112668,
+      "edit_count": 14,
+      "last_lines": 261,
+      "last_ts": 1780743991821,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "35af6516"
+      "last_content_hash": "ffdd1a80"
     },
     "node_modules/.tmp/tsconfig.app.tsbuildinfo": {
       "ipo_ts": 1780723420860,
@@ -29,21 +29,21 @@
     },
     "src/commands/handlers.ts": {
       "ipo_ts": 1780723764417,
-      "edit_count": 12,
-      "last_lines": 863,
-      "last_ts": 1780742898179,
+      "edit_count": 13,
+      "last_lines": 888,
+      "last_ts": 1780743983223,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "b50e9c1d"
+      "last_content_hash": "b0a8265"
     },
     "dist/index.html": {
       "ipo_ts": 1780723776896,
-      "edit_count": 26,
+      "edit_count": 28,
       "last_lines": 13,
-      "last_ts": 1780743493104,
+      "last_ts": 1780744177492,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "ce668a9"
+      "last_content_hash": "397d2bfa"
     },
     "src/components/InputLine.tsx": {
       "ipo_ts": 1780723931392,
@@ -56,21 +56,21 @@
     },
     "src/i18n/translations.ts": {
       "ipo_ts": 1780724299531,
-      "edit_count": 19,
-      "last_lines": 659,
-      "last_ts": 1780742904636,
+      "edit_count": 20,
+      "last_lines": 662,
+      "last_ts": 1780743968509,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "20d57fbc"
+      "last_content_hash": "10bf4ac7"
     },
     "src/contexts/PlayerContext.tsx": {
       "ipo_ts": 1780725033995,
-      "edit_count": 24,
-      "last_lines": 442,
-      "last_ts": 1780743483083,
+      "edit_count": 26,
+      "last_lines": 451,
+      "last_ts": 1780744168596,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "2cd5b3de"
+      "last_content_hash": "fdfb18d7"
     },
     "src/App.tsx": {
       "ipo_ts": 1780725113390,
@@ -83,12 +83,12 @@
     },
     "electron/main.js": {
       "ipo_ts": 1780725383437,
-      "edit_count": 15,
-      "last_lines": 293,
-      "last_ts": 1780742585189,
+      "edit_count": 16,
+      "last_lines": 322,
+      "last_ts": 1780743916706,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "5216f171"
+      "last_content_hash": "bbe0b9e1"
     },
     "src/index.css": {
       "ipo_ts": 1780735582795,
@@ -128,30 +128,39 @@
     },
     "src/types/electron.d.ts": {
       "ipo_ts": 1780741507265,
-      "edit_count": 2,
-      "last_lines": 70,
-      "last_ts": 1780742861549,
+      "edit_count": 3,
+      "last_lines": 72,
+      "last_ts": 1780743928364,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "b83e1345"
+      "last_content_hash": "c14aa3ff"
     },
     "dist/assets/index-CXw6-ekC.css": {
       "ipo_ts": 1780742919044,
-      "edit_count": 3,
+      "edit_count": 4,
       "last_lines": 1,
-      "last_ts": 1780743493102,
+      "last_ts": 1780744177481,
       "delisted": false,
       "last_source": "onEdit",
       "last_content_hash": "e4b3a374"
     },
-    "dist/assets/index-CF0CzVSp.js": {
-      "ipo_ts": 1780743493098,
+    "electron/preload.js": {
+      "ipo_ts": 1780743923091,
       "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780743493098,
+      "last_lines": 30,
+      "last_ts": 1780743923091,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "c6ae949"
+      "last_content_hash": "a0c5cf44"
+    },
+    "dist/assets/index-CswxtnPC.js": {
+      "ipo_ts": 1780744177488,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780744177488,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "8ecc77d6"
     }
   }
 }

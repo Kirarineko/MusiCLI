@@ -152,6 +152,35 @@ ipcMain.handle('dir:findLrc', async (_event, mp3Path, rootDir) => {
   }
 });
 
+// LRC timing offset storage
+ipcMain.handle('lrc:readOffsets', async (_event, lrcDir) => {
+  try {
+    const file = path.join(lrcDir, 'offsets.json');
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return {};
+  } catch { return {}; }
+});
+
+ipcMain.handle('lrc:writeOffset', async (_event, lrcDir, trackName, offsetMs) => {
+  try {
+    if (!fs.existsSync(lrcDir)) fs.mkdirSync(lrcDir, { recursive: true });
+    const file = path.join(lrcDir, 'offsets.json');
+    let data = {};
+    if (fs.existsSync(file)) {
+      try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch {}
+    }
+    if (offsetMs === 0) {
+      delete data[trackName];
+    } else {
+      data[trackName] = offsetMs;
+    }
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.on('window:minimize', () => mainWindow.minimize());
 
 ipcMain.handle('file:read', async (_event, filePath) => {
