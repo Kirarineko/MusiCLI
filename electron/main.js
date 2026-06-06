@@ -119,6 +119,38 @@ ipcMain.handle('fs:dirExists', async (_event, dirPath) => {
   } catch { return false; }
 });
 
+// Recursively search for .lrc file matching mp3 filename
+ipcMain.handle('dir:findLrc', async (_event, mp3Path, rootDir) => {
+  try {
+    const ext = path.extname(mp3Path);
+    const baseName = path.basename(mp3Path, ext);
+    // Match by case-insensitive filename (e.g. "song.lrc", "Song.LRC", "SONG.lrc")
+    const target = baseName.toLowerCase() + '.lrc';
+
+    function searchDir(dir) {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+            const found = searchDir(full);
+            if (found) return found;
+          } else if (entry.isFile() && entry.name.toLowerCase() === target) {
+            return full;
+          }
+        }
+      } catch { /* skip permission errors */ }
+      return null;
+    }
+    const found = searchDir(rootDir);
+    console.log('[lrc] findLrc:', mp3Path, '→', found || 'not found');
+    return found;
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.on('window:minimize', () => mainWindow.minimize());
 
 ipcMain.handle('file:read', async (_event, filePath) => {

@@ -21,11 +21,13 @@ export interface AppSettings {
   fontWeight: number;
   customFont: string;
   customFontData: string;
-  lyricsVisible: boolean;
-  lyricsMode: LyricsMode;
+  lyricsTerminal: boolean;
+  lyricsFloating: boolean;
   progressFilled: string;
   progressEmpty: string;
   progressWidth: number;
+  seekStep: number;
+  seekPause: boolean;
 }
 
 export interface Theme {

@@ -33,6 +33,7 @@ export interface MusicPlayerAPI {
   selectFolder(): Promise<string | null>;
   selectFont(): Promise<string | null>;
   listAudioFiles(dirPath: string): Promise<string[] | { error: string }>;
+  findLrc(mp3Path: string, rootDir: string): Promise<string | null | { error: string }>;
   readMetadata(filePath: string): Promise<MetadataResult>;
   readFile(filePath: string): Promise<string | { error: string }>;
   readFileBase64(filePath: string): Promise<string | { error: string }>;

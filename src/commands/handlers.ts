@@ -24,6 +24,8 @@ export interface CommandContext {
   exitSelectMode: () => void;
   enterImode: (mode: 'import' | 'track-pl', items: InteractiveItem[], cb: (selected: InteractiveItem[]) => void) => void;
   exitImode: () => void;
+  enterSeekMode: () => void;
+  exitSeekMode: () => void;
 
   // Player
   playlist: string[];
@@ -46,9 +48,12 @@ export interface CommandContext {
   loadLRC: (mp3Path: string) => Promise<boolean>;
 
   // Lyrics
-  lyricsVisible: boolean;
-  toggleLyrics: () => void;
-  setLyricsMode: (m: import('../types').LyricsMode) => void;
+  lyricsTerminal: boolean;
+  lyricsFloating: boolean;
+  toggleTerminalLyrics: () => void;
+  toggleFloatingLyrics: () => void;
+  setLyricsTerminal: (v: boolean) => Promise<void>;
+  setLyricsFloating: (v: boolean) => Promise<void>;
 
   // Settings
   saveSettings: (partial: Record<string, unknown>) => void;
@@ -488,20 +493,22 @@ export function registerAllCommands() {
     }
   }, 'helpList');
 
-  register('lyric', ['lyrics', 'lrc'], (args) => {
+  register('lyric', ['lyrics', 'lrc'], async (args) => {
     const c = ctx();
     const sub = (args[0] || '').toLowerCase();
-    if (sub === 'floating' || sub === 'float' || sub === 'desktop') {
-      c.setLyricsMode('floating');
-      c.printLine(t('lyricsFloatingOn'), 'success');
-    } else if (sub === 'terminal' || sub === 'term' || sub === 'inline') {
-      c.setLyricsMode('terminal');
-      c.printLine(t('lyricsTerminalOn'), 'success');
+    if (sub === 'f' || sub === 'floating' || sub === 'float' || sub === 'desktop') {
+      await c.toggleFloatingLyrics();
+      c.printLine(c.lyricsFloating ? t('lyricsFloatingOn') : t('lyricsOff'), 'success');
+    } else if (sub === 't' || sub === 'terminal' || sub === 'term' || sub === 'inline') {
+      await c.toggleTerminalLyrics();
+      c.printLine(c.lyricsTerminal ? t('lyricsTerminalOn') : t('lyricsOff'), 'success');
     } else if (sub === 'off' || sub === 'hide' || sub === 'disable') {
-      c.setLyricsMode('off');
+      await c.setLyricsFloating(false);
+      await c.setLyricsTerminal(false);
       c.printLine(t('lyricsOff'), 'info');
     } else if (!sub) {
-      c.toggleLyrics();
+      await c.toggleTerminalLyrics();
+      c.printLine(c.lyricsTerminal ? t('lyricsTerminalOn') : t('lyricsOff'), 'success');
     } else {
       c.printLine(t('lyricUsage'), 'info');
     }
@@ -553,13 +560,45 @@ export function registerAllCommands() {
 
   register('seek', ['goto'], (args) => {
     const c = ctx();
-    const s = parseFloat(args[0]);
-    if (isNaN(s)) {
-      c.printLine(t('seekUsage'), 'info');
+    const sub = (args[0] || '').toLowerCase();
+
+    if (sub === 'step') {
+      const v = parseInt(args[1], 10);
+      if (isNaN(v) || v < 1 || v > 60) {
+        c.printLine(t('seekStepUsage', { v: getStoredSettings().seekStep || 5 }), 'info');
+        return;
+      }
+      c.saveSettings({ seekStep: v });
+      c.printLine(t('seekStepSet', { v }), 'success');
       return;
     }
-    c.seek(s);
-    c.printLine(t('seekSet', { t: formatTime(s) }), 'success');
+
+    if (sub === 'pause') {
+      const val = (args[1] || '').toLowerCase();
+      if (val === 'on' || val === 'true' || val === '1') {
+        c.saveSettings({ seekPause: true });
+        c.printLine(t('seekPauseOn'), 'success');
+      } else if (val === 'off' || val === 'false' || val === '0') {
+        c.saveSettings({ seekPause: false });
+        c.printLine(t('seekPauseOff'), 'success');
+      } else {
+        c.printLine(t('seekPauseUsage'), 'info');
+      }
+      return;
+    }
+
+    // Absolute seek
+    const s = parseFloat(args[0]);
+    if (!isNaN(s)) {
+      c.seek(s);
+      c.printLine(t('seekSet', { t: formatTime(s) }), 'success');
+      return;
+    }
+
+    // No args: enter interactive seek mode
+    const step = getStoredSettings().seekStep || 5;
+    c.enterSeekMode();
+    c.printLine(t('seekModeEnter', { step }), 'success');
   }, 'helpSeek');
 
   // theme

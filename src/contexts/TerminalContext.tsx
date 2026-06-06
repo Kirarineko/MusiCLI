@@ -47,6 +47,10 @@ interface TerminalContextValue {
   toggleIitem: (idx: number) => void;
   moveCursor: (delta: number) => void;
   imodeCallback: InteractiveCallback | null;
+  // Seek mode
+  seekMode: boolean;
+  enterSeekMode: () => void;
+  exitSeekMode: () => void;
 }
 
 let nextId = 1;
@@ -64,6 +68,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const [ifilter, setIfilter] = useState('');
   const imodeCallbackRef = useRef<InteractiveCallback | null>(null);
   const itemsRef = useRef<InteractiveItem[]>([]);
+  const [seekMode, setSeekMode] = useState(false);
 
   // Keep ref in sync with state so moveCursor can read latest value
   useEffect(() => { itemsRef.current = items; }, [items]);
@@ -175,6 +180,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     imodeCallbackRef.current = null;
   }, []);
 
+  const enterSeekMode = useCallback(() => {
+    setSeekMode(true);
+    setSelectMode(false);
+    if (imode) exitImode();
+  }, [imode, exitImode]);
+
+  const exitSeekMode = useCallback(() => {
+    setSeekMode(false);
+  }, []);
+
   const toggleIitem = useCallback((idx: number) => {
     setItems(prev => prev.map((it, i) => i === idx ? { ...it, selected: !it.selected } : it));
   }, []);
@@ -214,6 +229,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setIidx, updateFilter, toggleIitem,
       moveCursor,
       imodeCallback: imodeCallbackRef.current,
+      seekMode,
+      enterSeekMode,
+      exitSeekMode,
     }}>
       {children}
     </TerminalContext.Provider>

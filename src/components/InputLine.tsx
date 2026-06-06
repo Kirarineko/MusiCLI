@@ -30,6 +30,8 @@ export function InputLine() {
     exitSelectMode: terminal.exitSelectMode,
     enterImode: terminal.enterImode,
     exitImode: terminal.exitImode,
+    enterSeekMode: terminal.enterSeekMode,
+    exitSeekMode: terminal.exitSeekMode,
 
     playlist: player.playlist,
     currentIndex: player.currentIndex,
@@ -50,9 +52,12 @@ export function InputLine() {
     cyclePlayMode: player.cyclePlayMode,
     loadLRC: player.loadLRC,
 
-    lyricsVisible: player.lyricsVisible,
-    toggleLyrics: player.toggleLyrics,
-    setLyricsMode: player.setLyricsMode,
+    lyricsTerminal: player.lyricsTerminal,
+    lyricsFloating: player.lyricsFloating,
+    toggleTerminalLyrics: player.toggleTerminalLyrics,
+    toggleFloatingLyrics: player.toggleFloatingLyrics,
+    setLyricsTerminal: player.setLyricsTerminal,
+    setLyricsFloating: player.setLyricsFloating,
 
     saveSettings: (partial) => settings.saveSettings(partial),
     applyTheme: (name) => settings.applyTheme(name),
@@ -145,6 +150,34 @@ export function InputLine() {
   }, [terminal, buildCtx]);
 
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Seek mode — arrow keys seek, any other key exits
+    if (terminal.seekMode) {
+      const s = settings.settings;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const step = s.seekStep || 5;
+        const wasPaused = !player.isPlaying;
+        if (s.seekPause && !wasPaused) player.pause();
+        player.seek(player.getCurrentTime() - step);
+        if (s.seekPause && !wasPaused) player.play();
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const step = s.seekStep || 5;
+        const wasPaused = !player.isPlaying;
+        if (s.seekPause && !wasPaused) player.pause();
+        player.seek(player.getCurrentTime() + step);
+        if (s.seekPause && !wasPaused) player.play();
+        return;
+      }
+      // Any other key exits seek mode
+      e.preventDefault();
+      terminal.exitSeekMode();
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+
     // Interactive mode — only intercept special keys, let typing work naturally
     if (terminal.imode) {
       if (e.key === 'ArrowUp') { e.preventDefault(); terminal.moveCursor(-1); return; }
@@ -205,7 +238,11 @@ export function InputLine() {
     }
   }, [terminal, executeCommand, handleSelectConfirm]);
 
-  const placeholder = terminal.selectMode ? t('selectHint') : '';
+  const placeholder = terminal.seekMode
+    ? t('seekModeHint', { step: settings.settings.seekStep || 5 })
+    : terminal.selectMode
+    ? t('selectHint')
+    : '';
 
   return (
     <div id="input-line">

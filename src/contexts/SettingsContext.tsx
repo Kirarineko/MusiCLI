@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useCallback, type ReactNode } from 'react';
-import type { AppSettings, Lang, LyricsMode, Theme } from '../types';
+import type { AppSettings, Lang, Theme } from '../types';
 import { parseColor, formatColor, darken } from '../utils/color';
 import { loadLang, setLang as i18nSetLang } from '../i18n';
 
@@ -24,11 +24,13 @@ const defaults: AppSettings = {
   fontWeight: 400,
   customFont: '',
   customFontData: '',
-  lyricsVisible: false,
-  lyricsMode: 'floating' as LyricsMode,
+  lyricsTerminal: false,
+  lyricsFloating: false,
   progressFilled: '=',
   progressEmpty: ' ',
   progressWidth: 20,
+  seekStep: 5,
+  seekPause: false,
 };
 
 const BUILTIN_THEMES: Theme[] = [

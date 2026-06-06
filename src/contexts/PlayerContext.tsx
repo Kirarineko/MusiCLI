@@ -1,5 +1,5 @@
 import { createContext, useContext, useRef, useState, useCallback, useEffect, type ReactNode } from 'react';
-import type { PlayMode, LyricsMode, LrcLine } from '../types';
+import type { PlayMode, LrcLine } from '../types';
 import { getStoredSettings } from './SettingsContext';
 import { parseLRC, getCurrentLineIdx } from '../utils/lrc';
 
@@ -38,19 +38,20 @@ interface PlayerContextValue {
   volume: number;
   // Lyrics
   lyricsLines: LrcLine[];
-  lyricsVisible: boolean;
-  lyricsMode: LyricsMode;
-  setLyricsVisible: (v: boolean) => void;
-  setLyricsMode: (m: LyricsMode) => void;
-  toggleLyrics: () => void;
+  lyricsTerminal: boolean;
+  lyricsFloating: boolean;
+  toggleTerminalLyrics: () => void;
+  toggleFloatingLyrics: () => void;
+  setLyricsTerminal: (v: boolean) => Promise<void>;
+  setLyricsFloating: (v: boolean) => Promise<void>;
   loadLRC: (mp3Path: string) => Promise<boolean>;
   updateLyrics: (currentTime: number) => void;
   // Progress bar
   progressFilled: string;
   progressEmpty: string;
   progressWidth: number;
-  // Callbacks
-  onEndedCallbacks: Array<() => void>;
+  // Lyric printing (terminal mode) — registered by AppInitializer
+  registerLyricPrinter: (fn: (text: string, className?: string) => void) => void;
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
@@ -65,14 +66,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playMode, setPlayModeState] = useState<PlayMode>('normal');
   const [lyricsLines, setLyricsLines] = useState<LrcLine[]>([]);
-  const [lyricsVisible, setLyricsVisibleState] = useState(false);
-  const [lyricsMode, setLyricsModeState] = useState<LyricsMode>('floating');
+  const [lyricsTerminal, setLyricsTerminalState] = useState(false);
+  const [lyricsFloating, setLyricsFloatingState] = useState(false);
+  const lyricsTerminalRef = useRef(false);
+  const lyricsFloatingRef = useRef(false);
   const lastPrintedIdxRef = useRef(-1);
   const shuffleStackRef = useRef<number[]>([]);
   const endedCallbacksRef = useRef<Array<() => void>>([]);
+  const lyricPrinterRef = useRef<((text: string, className?: string) => void) | null>(null);
+
+  const registerLyricPrinter = useCallback((fn: (text: string, className?: string) => void) => {
+    lyricPrinterRef.current = fn;
+  }, []);
 
   const playModeRef = useRef<PlayMode>('normal');
-  const lyricsModeRef = useRef<LyricsMode>('floating');
 
   // Initialize from saved settings
   useEffect(() => {
@@ -81,12 +88,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setVolumeState(s.volume);
       if (audioRef.current) audioRef.current.volume = s.volume / 100;
     }
-    if (s.lyricsMode) {
-      setLyricsModeState(s.lyricsMode);
-      lyricsModeRef.current = s.lyricsMode;
+    if (s.lyricsTerminal) {
+      setLyricsTerminalState(true);
+      lyricsTerminalRef.current = true;
     }
-    setLyricsVisibleState(s.lyricsVisible);
-    // Progress bar settings
+    if (s.lyricsFloating) {
+      setLyricsFloatingState(true);
+      lyricsFloatingRef.current = true;
+      try { window.musicPlayer.showFloatingLyrics(); } catch {}
+    }
   }, []);
 
   const nextShuffleIndex = useCallback(() => {
@@ -198,6 +208,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const lrcPath = mp3Path.replace(/\.[^.]+$/, '.lrc');
     let result: string | { error: string } = await window.musicPlayer.readFile(lrcPath);
 
+    // 1. Try lrc/ subfolder in music folder
     if (hasError(result)) {
       const s = getStoredSettings();
       const musicFolder = s.musicFolder || '';
@@ -208,6 +219,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    // 2. Try lrc/ subfolder next to the MP3 file
     if (hasError(result)) {
       const dir = mp3Path.substring(0, Math.max(mp3Path.lastIndexOf('/'), mp3Path.lastIndexOf('\\')));
       if (dir) {
@@ -217,16 +229,37 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    // 3. Recursively scan music folder for matching .lrc
     if (hasError(result)) {
-      if (lyricsVisible && lyricsModeRef.current === 'floating') {
+      const s = getStoredSettings();
+      const musicFolder = s.musicFolder || '';
+      if (musicFolder) {
+        const found = await window.musicPlayer.findLrc(mp3Path, musicFolder);
+        if (found && !hasError(found)) result = await window.musicPlayer.readFile(found);
+      }
+    }
+
+    // 4. Recursively scan MP3's parent directory
+    if (hasError(result)) {
+      const dir = mp3Path.substring(0, Math.max(mp3Path.lastIndexOf('/'), mp3Path.lastIndexOf('\\')));
+      if (dir) {
+        const found = await window.musicPlayer.findLrc(mp3Path, dir);
+        if (found && !hasError(found)) result = await window.musicPlayer.readFile(found);
+      }
+    }
+
+    if (hasError(result)) {
+      console.log('[lrc] loadLRC: not found for', mp3Path);
+      if (lyricsFloatingRef.current) {
         window.musicPlayer.sendLyricsUpdate({ prev: '', current: '', next: '' });
       }
       return false;
     }
     const lines = parseLRC(result as string);
+    console.log('[lrc] loadLRC: found', lines.length, 'lines for', mp3Path);
     setLyricsLines(lines);
     return lines.length > 0;
-  }, [lyricsVisible]);
+  }, []);
 
   const sendLyricsToFloating = useCallback((time: number) => {
     if (lyricsLines.length === 0) {
@@ -241,63 +274,69 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [lyricsLines]);
 
   const updateLyrics = useCallback((time: number) => {
-    if (!lyricsVisible || lyricsLines.length === 0) return;
-    if (lyricsModeRef.current === 'floating') {
+    if (lyricsLines.length === 0) return;
+    // Floating: always sync if window is open
+    if (lyricsFloatingRef.current) {
       sendLyricsToFloating(time);
-      return;
     }
-    // Terminal mode is handled by commands via printLine
-  }, [lyricsVisible, lyricsLines, sendLyricsToFloating]);
-
-  const setLyricsVisible = useCallback(async (val: boolean) => {
-    setLyricsVisibleState(val);
-    if (val && lyricsModeRef.current === 'floating') {
-      try { await window.musicPlayer.showFloatingLyrics(); } catch {}
-    } else if (!val && lyricsModeRef.current === 'floating') {
-      try { await window.musicPlayer.hideFloatingLyrics(); } catch {}
+    // Terminal: print new lines as time progresses
+    if (lyricsTerminalRef.current) {
+      const printFn = lyricPrinterRef.current;
+      if (!printFn) return;
+      let newIdx = lastPrintedIdxRef.current;
+      for (let i = lastPrintedIdxRef.current + 1; i < lyricsLines.length; i++) {
+        if (lyricsLines[i].time <= time) {
+          newIdx = i;
+        } else {
+          break;
+        }
+      }
+      if (newIdx > lastPrintedIdxRef.current) {
+        for (let i = lastPrintedIdxRef.current + 1; i <= newIdx; i++) {
+          const cls = i === newIdx ? 'lyric' : 'dim';
+          printFn(lyricsLines[i].text, cls);
+        }
+        lastPrintedIdxRef.current = newIdx;
+      }
     }
-  }, []);
+  }, [lyricsLines, sendLyricsToFloating]);
 
-  const setLyricsMode = useCallback(async (mode: LyricsMode) => {
-    const prevMode = lyricsModeRef.current;
-    lyricsModeRef.current = mode;
-    setLyricsModeState(mode);
-
-    if (prevMode === 'floating' && mode !== 'floating') {
-      try { await window.musicPlayer.hideFloatingLyrics(); } catch {}
-    }
-    if (mode === 'off') {
-      setLyricsVisibleState(false);
+  // Terminal lyrics toggle
+  const setLyricsTerminal = useCallback(async (v: boolean) => {
+    lyricsTerminalRef.current = v;
+    setLyricsTerminalState(v);
+    lastPrintedIdxRef.current = -1;
+    if (!v) {
+      try { localStorage.setItem('musiccli-settings', JSON.stringify({ ...getStoredSettings(), lyricsTerminal: false })); } catch {}
     } else {
-      setLyricsVisibleState(true);
-      if (mode === 'floating') {
-        try { await window.musicPlayer.showFloatingLyrics(); } catch {}
-      }
+      try { localStorage.setItem('musiccli-settings', JSON.stringify({ ...getStoredSettings(), lyricsTerminal: true })); } catch {}
     }
-    getStoredSettings();
   }, []);
 
-  const toggleLyrics = useCallback(async () => {
-    const prevMode = lyricsModeRef.current;
-    let newMode: LyricsMode;
-    if (lyricsModeRef.current === 'off') newMode = 'floating';
-    else if (lyricsModeRef.current === 'floating') newMode = 'terminal';
-    else newMode = 'off';
+  const toggleTerminalLyrics = useCallback(async () => {
+    await setLyricsTerminal(!lyricsTerminalRef.current);
+  }, [setLyricsTerminal]);
 
-    lyricsModeRef.current = newMode;
-    setLyricsModeState(newMode);
-
-    if (prevMode === 'floating' && newMode !== 'floating') {
+  // Floating lyrics toggle
+  const setLyricsFloating = useCallback(async (v: boolean) => {
+    lyricsFloatingRef.current = v;
+    setLyricsFloatingState(v);
+    if (v) {
+      try { await window.musicPlayer.showFloatingLyrics(); } catch {}
+    } else {
       try { await window.musicPlayer.hideFloatingLyrics(); } catch {}
     }
-    if (newMode === 'off') setLyricsVisibleState(false);
-    else {
-      setLyricsVisibleState(true);
-      if (newMode === 'floating') {
-        try { await window.musicPlayer.showFloatingLyrics(); } catch {}
-      }
-    }
+    try { localStorage.setItem('musiccli-settings', JSON.stringify({ ...getStoredSettings(), lyricsFloating: v })); } catch {}
   }, []);
+
+  const toggleFloatingLyrics = useCallback(async () => {
+    await setLyricsFloating(!lyricsFloatingRef.current);
+  }, [setLyricsFloating]);
+
+  // Drive lyrics + progress from time updates
+  useEffect(() => {
+    updateLyrics(currentTime);
+  }, [currentTime, updateLyrics]);
 
   // Audio element setup
   const audioElement = useRef(<audio
@@ -355,13 +394,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       isPlaying,
       playMode, setPlayMode, cyclePlayMode,
       currentTime, duration, volume,
-      lyricsLines, lyricsVisible, lyricsMode,
-      setLyricsVisible, setLyricsMode, toggleLyrics,
+      lyricsLines, lyricsTerminal, lyricsFloating,
+      toggleTerminalLyrics, toggleFloatingLyrics,
+      setLyricsTerminal, setLyricsFloating,
       loadLRC, updateLyrics,
       progressFilled: s.progressFilled,
       progressEmpty: s.progressEmpty,
       progressWidth: s.progressWidth,
-      onEndedCallbacks: endedCallbacksRef.current,
+      registerLyricPrinter,
     }}>
       {audioElement.current}
       {children}

@@ -17,7 +17,8 @@
   --font: "Consolas", "Courier New", "Fira Code", monospace;
   --font-size: 16px;
   --font-weight: 400;
-  --line-height: 1.5;
+  --line-height: 1.4;
+  --padding: 0px;
 }
 
 html, body {
@@ -36,7 +37,7 @@ body, #root {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 10px 10px;
+  padding: 5px 3px;
 }
 
 /* === Background Layer === */
@@ -238,9 +239,7 @@ cmd { color: var(--fg-bright); font-weight: bold; }
 }
 
 #btn-close {
-  position: fixed;
-  top: 6px;
-  right: 8px;
+  position: relative;
   width: 22px; height: 22px;
   border: none;
   background: transparent;

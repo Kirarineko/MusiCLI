@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { PlaylistProvider, usePlaylists, type PlayerSync } from './contexts/PlaylistContext';
 import { PlayerProvider, usePlayer } from './contexts/PlayerContext';
-import { TerminalProvider } from './contexts/TerminalContext';
+import { TerminalProvider, useTerminal } from './contexts/TerminalContext';
 import { TitleBar } from './components/TitleBar';
 import { BackgroundLayer } from './components/BackgroundLayer';
 import { Terminal } from './components/Terminal';
@@ -15,6 +15,7 @@ import { getStoredSettings } from './contexts/SettingsContext';
 function AppInitializer({ children }: { children: React.ReactNode }) {
   const player = usePlayer();
   const playlists = usePlaylists();
+  const terminal = useTerminal();
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -28,6 +29,9 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
       getPlaylist: player.getPlaylist,
     };
     playlists.registerPlayerSync(sync);
+
+    // Wire terminal lyric printing into PlayerContext
+    player.registerLyricPrinter((text, cls) => terminal.printLine(text, cls));
 
     playlists.ensureDefault();
 
@@ -57,9 +61,12 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     // Restore volume
     if (s.volume != null) player.setVolume(s.volume);
 
-    // Restore lyrics
-    if (s.lyricsVisible && s.lyricsMode === 'floating') {
-      player.setLyricsMode(s.lyricsMode);
+    // Restore lyrics state (floating window is opened in PlayerProvider init)
+    if (s.lyricsTerminal) {
+      player.setLyricsTerminal(true);
+    }
+    if (s.lyricsFloating) {
+      player.setLyricsFloating(true);
     }
   }, []);
 

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('musicPlayer', {
   selectFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   selectFont: () => ipcRenderer.invoke('dialog:openFont'),
   listAudioFiles: (dirPath) => ipcRenderer.invoke('dir:listAudio', dirPath),
+  findLrc: (mp3Path, rootDir) => ipcRenderer.invoke('dir:findLrc', mp3Path, rootDir),
   readMetadata: (filePath) => ipcRenderer.invoke('file:readMetadata', filePath),
   readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
   readFileBase64: (filePath) => ipcRenderer.invoke('file:readBase64', filePath),
