@@ -2,7 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execSync } = require('child_process');
+const AdmZip = require('adm-zip');
 
 let mainWindow;
 let lyricsWindow = null;
@@ -283,25 +283,13 @@ ipcMain.handle('fs:mkdir', async (_event, dir) => {
   }
 });
 
-// Helper: run a PowerShell command with Unicode-safe Base64 encoding
-function runPowerShell(script) {
-  const psPath = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
-  // Encode as UTF-16LE then Base64 — safe for paths with CJK characters
-  const buf = Buffer.from(script, 'utf16le');
-  const encoded = buf.toString('base64');
-  return execSync(
-    `"${psPath}" -NoProfile -EncodedCommand ${encoded}`,
-    { timeout: 120000, windowsHide: true },
-  );
-}
-
 ipcMain.handle('fs:createZip', async (_event, sourceDir, destZip) => {
   try {
     const zipDir = path.dirname(destZip);
     if (!fs.existsSync(zipDir)) fs.mkdirSync(zipDir, { recursive: true });
-    if (fs.existsSync(destZip)) fs.unlinkSync(destZip);
-    // Use single-quoted paths in the PS script to handle spaces/special chars
-    runPowerShell(`$ProgressPreference='SilentlyContinue'; Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${destZip}' -Force`);
+    const zip = new AdmZip();
+    zip.addLocalFolder(sourceDir);
+    zip.writeZip(destZip);
     return { success: true };
   } catch (err) {
     return { error: err.message };
@@ -311,7 +299,8 @@ ipcMain.handle('fs:createZip', async (_event, sourceDir, destZip) => {
 ipcMain.handle('fs:extractZip', async (_event, zipPath, destDir) => {
   try {
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-    runPowerShell(`$ProgressPreference='SilentlyContinue'; Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force`);
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(destDir, true);
     return { success: true };
   } catch (err) {
     return { error: err.message };
