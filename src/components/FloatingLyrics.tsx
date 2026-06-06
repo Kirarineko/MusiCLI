@@ -38,13 +38,8 @@ export function FloatingLyrics() {
 
   return (
     <>
-      <button
-        id="btn-close"
-        title="Close"
-        onClick={() => window.musicPlayer.hideFloatingLyrics()}
-      >
-        &times;
-      </button>
+      {/* Drag handle dot — top-right, visible on hover */}
+      <div id="lyrics-drag-dot" title="Drag to move" />
       <div id="drag-area">
         <div id="lyrics-container">
           <div className="lyric-line current" id="line-current">

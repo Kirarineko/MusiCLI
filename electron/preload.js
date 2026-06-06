@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('musicPlayer', {
   dirExists: (dirPath) => ipcRenderer.invoke('fs:dirExists', dirPath),
   // Floating lyrics
   showFloatingLyrics: () => ipcRenderer.invoke('lyrics-window:show'),
+  setLyricsMouseEvents: (enabled) => ipcRenderer.send('lyrics-window:set-mouse-events', enabled),
   hideFloatingLyrics: () => ipcRenderer.invoke('lyrics-window:hide'),
   sendLyricsUpdate: (data) => ipcRenderer.send('lyrics-window:send', data),
   sendLyricsTheme: (data) => ipcRenderer.send('lyrics-window:update-theme', data),

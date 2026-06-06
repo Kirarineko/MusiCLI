@@ -29,6 +29,7 @@ export interface AppSettings {
   lyricsGap: number;
   lyricsShadow: 'none' | 'small' | 'medium' | 'large';
   lyricsAlign: 'left' | 'center' | 'right';
+  lyricsLocked: boolean;
   progressFilled: string;
   progressEmpty: string;
   progressWidth: number;

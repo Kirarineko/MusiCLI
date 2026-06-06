@@ -550,6 +550,12 @@ export function registerAllCommands() {
         c.saveSettings({ lyricsAlign: 'center' });
         c.printLine(t('lyricAlignSet', { v: 'center' }), 'success');
       }
+    } else if (sub === 'lock') {
+      const s = getStoredSettings();
+      const cur = s.lyricsLocked;
+      c.saveSettings({ lyricsLocked: !cur });
+      window.musicPlayer?.setLyricsMouseEvents(cur);
+      c.printLine(!cur ? t('lyricLockOn') : t('lyricLockOff'), 'success');
     } else if (sub === 'shadow') {
       const val = (rest || '').toLowerCase();
       if (val === 'off' || val === 'none') {

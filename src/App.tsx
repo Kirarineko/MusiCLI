@@ -68,10 +68,12 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     if (s.lyricsFloating) {
       player.setLyricsFloating(true);
     }
+  }, []);
 
-    // Sync current lyrics settings to main process so they're cached
-    // before the floating window ever opens (survives restart)
-    try {
+  // Force-sync lyrics settings 200ms after startup (blunt but reliable)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const s = getStoredSettings();
       const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
       window.musicPlayer?.sendLyricsTheme({
         font: s.customFont ? `"${s.customFont}", ${baseFonts}` : baseFonts,
@@ -84,7 +86,8 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
         lyricsShadow: SHADOW_PRESETS[s.lyricsShadow] || '0 0 10px rgba(0,0,0,0.85)',
         lyricsAlign: s.lyricsAlign || 'center',
       });
-    } catch {}
+    }, 200);
+    return () => clearTimeout(timer);
   }, []);
 
   return <>{children}</>;

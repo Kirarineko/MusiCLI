@@ -49,6 +49,7 @@ export interface MusicPlayerAPI {
   getDefaultMusicDir(): Promise<string>;
   dirExists(dirPath: string): Promise<boolean>;
   showFloatingLyrics(): Promise<void>;
+  setLyricsMouseEvents(enabled: boolean): void;
   hideFloatingLyrics(): Promise<void>;
   sendLyricsUpdate(data: LyricsUpdateData): void;
   sendLyricsTheme(data: LyricsThemeData): void;

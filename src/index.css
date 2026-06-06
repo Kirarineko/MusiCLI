@@ -254,29 +254,23 @@ cmd { color: var(--fg-bright); font-weight: bold; }
   width: 100%;
 }
 
-#btn-close {
-  position: relative;
-  width: 22px; height: 22px;
-  border: none;
-  background: transparent;
-  color: rgba(255,255,255,0.2);
-  font-size: 16px;
-  cursor: pointer;
+#lyrics-drag-dot {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
   -webkit-app-region: no-drag;
   opacity: 0;
-  transition: opacity 0.2s;
-  line-height: 22px;
-  text-align: center;
-  border-radius: 4px;
-  z-index: 10;
+  transition: opacity 0.3s;
+  z-index: 100;
+  cursor: grab;
 }
-
-body:hover #btn-close { opacity: 1; }
-
-#btn-close:hover {
-  background: rgba(255,255,255,0.15);
-  color: rgba(255,255,255,0.9);
-}
+body:hover #lyrics-drag-dot { opacity: 1; }
+#lyrics-drag-dot:hover { background: rgba(255,255,255,0.5); }
+#lyrics-drag-dot:active { cursor: grabbing; }
 
 #drag-area {
   position: fixed;

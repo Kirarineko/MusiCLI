@@ -135,6 +135,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     printRaw('    lyric accent|fg <hex> ' + t('helpLyricColor'));
     printRaw('    lyric shadow <s|m|l>  ' + t('helpLyricShadow'));
     printRaw('    lyric align <l|c|r>   ' + t('helpLyricAlign'));
+    printRaw('    lyric lock            ' + t('helpLyricLock'));
     printRaw('    bar [width|char]      ' + t('helpProgress'));
     printLine('  ' + t('helpGroupPl'), 'dim');
     printRaw('    cd [name]             ' + t('helpCd'));

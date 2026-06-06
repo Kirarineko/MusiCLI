@@ -42,6 +42,7 @@ const defaults: AppSettings = {
   lyricsGap: 10,
   lyricsShadow: 'medium',
   lyricsAlign: 'center',
+  lyricsLocked: false,
   progressFilled: '=',
   progressEmpty: ' ',
   progressWidth: 20,
