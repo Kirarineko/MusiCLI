@@ -5,6 +5,7 @@ const os = require('os');
 
 let mainWindow;
 let lyricsWindow = null;
+let lastLyricsTheme = null;
 
 const isDev = process.env.VITE_DEV_SERVER_URL != null;
 
@@ -234,6 +235,12 @@ function createLyricsWindow() {
       nodeIntegration: false,
     },
   });
+  // Register listener BEFORE loading — ensures we catch the event
+  lyricsWindow.webContents.on('did-finish-load', () => {
+    if (lastLyricsTheme) {
+      lyricsWindow.webContents.send('lyrics:update-theme', lastLyricsTheme);
+    }
+  });
   if (isDev) {
     lyricsWindow.loadURL(process.env.VITE_DEV_SERVER_URL + '#/lyrics');
   } else {
@@ -264,6 +271,7 @@ ipcMain.on('lyrics-window:send', (_event, data) => {
 });
 
 ipcMain.on('lyrics-window:update-theme', (_event, data) => {
+  lastLyricsTheme = data;
   if (lyricsWindow && !lyricsWindow.isDestroyed()) {
     lyricsWindow.webContents.send('lyrics:update-theme', data);
   }

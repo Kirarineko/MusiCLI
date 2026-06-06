@@ -129,7 +129,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     printLine('  ' + t('helpGroupDisplay'), 'dim');
     printRaw('    list                  ' + t('helpList'));
     printRaw('    info                  ' + t('helpInfo'));
-    printRaw('    lyric                 ' + t('helpLyric'));
+    printRaw('    lyric t|f|off          ' + t('helpLyric'));
+    printRaw('    lyric next <n>        ' + t('helpLyricNext'));
+    printRaw('    lyric gap <px>        ' + t('helpLyricGap'));
+    printRaw('    lyric accent|fg <hex> ' + t('helpLyricColor'));
+    printRaw('    lyric shadow <s|m|l>  ' + t('helpLyricShadow'));
+    printRaw('    lyric align <l|c|r>   ' + t('helpLyricAlign'));
     printRaw('    bar [width|char]      ' + t('helpProgress'));
     printLine('  ' + t('helpGroupPl'), 'dim');
     printRaw('    cd [name]             ' + t('helpCd'));

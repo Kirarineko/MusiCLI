@@ -538,6 +538,18 @@ export function registerAllCommands() {
       }
       c.saveSettings({ lyricsGap: g });
       c.printLine(t('lyricGapSet', { v: g }), 'success');
+    } else if (sub === 'align') {
+      const v = (rest || '').toLowerCase();
+      if (v === 'left' || v === 'l') {
+        c.saveSettings({ lyricsAlign: 'left' });
+        c.printLine(t('lyricAlignSet', { v: 'left' }), 'success');
+      } else if (v === 'right' || v === 'r') {
+        c.saveSettings({ lyricsAlign: 'right' });
+        c.printLine(t('lyricAlignSet', { v: 'right' }), 'success');
+      } else {
+        c.saveSettings({ lyricsAlign: 'center' });
+        c.printLine(t('lyricAlignSet', { v: 'center' }), 'success');
+      }
     } else if (sub === 'shadow') {
       const val = (rest || '').toLowerCase();
       if (val === 'off' || val === 'none') {

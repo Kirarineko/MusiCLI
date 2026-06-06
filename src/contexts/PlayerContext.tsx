@@ -325,24 +325,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setLyricsFloatingState(v);
     if (v) {
       try { await window.musicPlayer.showFloatingLyrics(); } catch {}
-      // Wait for window to load, then send current settings
-      setTimeout(() => {
-        const s = getStoredSettings();
-        const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
-        window.musicPlayer.sendLyricsTheme({
-          font: s.customFont ? `"${s.customFont}", ${baseFonts}` : baseFonts,
-          fontSize: s.fontSize || 14,
-          fg: s.fg,
-          fgDim: s['fg-dim'],
-          accent: s.accent,
-          bg: s.bg,
-          lyricsAccent: s.lyricsAccent || '#b1b9f9',
-          lyricsFg: s.lyricsFg || '#cccccc',
-          lyricsNextCount: s.lyricsNextCount || 1,
-          lyricsGap: s.lyricsGap || 10,
-          lyricsShadow: SHADOW_PRESETS[s.lyricsShadow] || SHADOW_PRESETS.medium,
-        });
-      }, 300);
+      // Send current theme — main process stores and replays on window load
+      const s = getStoredSettings();
+      const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
+      window.musicPlayer.sendLyricsTheme({
+        font: s.customFont ? `"${s.customFont}", ${baseFonts}` : baseFonts,
+        fontSize: s.fontSize || 14, fg: s.fg, fgDim: s['fg-dim'],
+        accent: s.accent, bg: s.bg,
+        lyricsAccent: s.lyricsAccent || '#b1b9f9',
+        lyricsFg: s.lyricsFg || '#cccccc',
+        lyricsNextCount: s.lyricsNextCount || 1,
+        lyricsGap: s.lyricsGap || 10,
+        lyricsShadow: SHADOW_PRESETS[s.lyricsShadow] || SHADOW_PRESETS.medium,
+        lyricsAlign: s.lyricsAlign || 'center',
+      });
     } else {
       try { await window.musicPlayer.hideFloatingLyrics(); } catch {}
     }

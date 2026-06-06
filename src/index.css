@@ -16,6 +16,8 @@
   --lyrics-fg: #cccccc;
   --lyrics-accent: #b1b9f9;
   --lyrics-gap: 10px;
+  --lyrics-align: center;
+  --lyrics-align-flex: center;
   --bg-img: none;
   --bg-blur: 0px;
   --font: "Consolas", "Courier New", "Fira Code", monospace;
@@ -245,10 +247,10 @@ cmd { color: var(--fg-bright); font-weight: bold; }
 #lyrics-container {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: var(--lyrics-align-flex, center);
   justify-content: center;
   gap: var(--lyrics-gap);
-  text-align: center;
+  text-align: var(--lyrics-align);
   width: 100%;
 }
 

@@ -41,6 +41,7 @@ const defaults: AppSettings = {
   lyricsNextCount: 1,
   lyricsGap: 10,
   lyricsShadow: 'medium',
+  lyricsAlign: 'center',
   progressFilled: '=',
   progressEmpty: ' ',
   progressWidth: 20,
@@ -173,6 +174,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         lyricsNextCount: merged.lyricsNextCount || 1,
         lyricsGap: merged.lyricsGap || 10,
         lyricsShadow: toCssShadow(merged.lyricsShadow || 'medium'),
+        lyricsAlign: merged.lyricsAlign || 'center',
       });
     }
   }, []);

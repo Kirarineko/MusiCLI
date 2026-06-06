@@ -27,6 +27,11 @@ export function FloatingLyrics() {
         if (data.lyricsFg) root.style.setProperty('--lyrics-fg', data.lyricsFg);
         if (data.lyricsGap != null) root.style.setProperty('--lyrics-gap', data.lyricsGap + 'px');
         if (data.lyricsShadow) root.style.setProperty('--lyrics-shadow', data.lyricsShadow);
+        if (data.lyricsAlign) {
+          root.style.setProperty('--lyrics-align', data.lyricsAlign);
+          const flexMap: Record<string, string> = { left: 'flex-start', center: 'center', right: 'flex-end' };
+          root.style.setProperty('--lyrics-align-flex', flexMap[data.lyricsAlign] || 'center');
+        }
       });
     }
   }, []);
