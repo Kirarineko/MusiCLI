@@ -8,6 +8,15 @@ let lyricsWindow = null;
 let lastLyricsTheme = null;
 
 const isDev = process.env.VITE_DEV_SERVER_URL != null;
+const lyricsThemeFile = path.join(app.getPath('userData'), 'lyrics-theme.json');
+
+// Load persisted theme on startup
+try { lastLyricsTheme = JSON.parse(fs.readFileSync(lyricsThemeFile, 'utf-8')); } catch {}
+
+function saveLyricsTheme(data) {
+  lastLyricsTheme = data;
+  try { fs.writeFileSync(lyricsThemeFile, JSON.stringify(data)); } catch {}
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -271,7 +280,7 @@ ipcMain.on('lyrics-window:send', (_event, data) => {
 });
 
 ipcMain.on('lyrics-window:update-theme', (_event, data) => {
-  lastLyricsTheme = data;
+  saveLyricsTheme(data);
   if (lyricsWindow && !lyricsWindow.isDestroyed()) {
     lyricsWindow.webContents.send('lyrics:update-theme', data);
   }

@@ -38,12 +38,12 @@
     },
     "dist/index.html": {
       "ipo_ts": 1780723776896,
-      "edit_count": 20,
+      "edit_count": 21,
       "last_lines": 13,
-      "last_ts": 1780740883364,
+      "last_ts": 1780741294689,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "21339b0"
+      "last_content_hash": "8e4d7127"
     },
     "src/components/InputLine.tsx": {
       "ipo_ts": 1780723931392,
@@ -74,21 +74,21 @@
     },
     "src/App.tsx": {
       "ipo_ts": 1780725113390,
-      "edit_count": 1,
-      "last_lines": 98,
-      "last_ts": 1780725113390,
+      "edit_count": 4,
+      "last_lines": 118,
+      "last_ts": 1780741285500,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "bf2309b6"
+      "last_content_hash": "bd9d5ba9"
     },
     "electron/main.js": {
       "ipo_ts": 1780725383437,
-      "edit_count": 5,
-      "last_lines": 287,
-      "last_ts": 1780740815564,
+      "edit_count": 7,
+      "last_lines": 296,
+      "last_ts": 1780741068880,
       "delisted": false,
       "last_source": "onEdit",
-      "last_content_hash": "e06a64e6"
+      "last_content_hash": "35603cfa"
     },
     "src/index.css": {
       "ipo_ts": 1780735582795,
@@ -126,15 +126,6 @@
       "last_source": "onEdit",
       "last_content_hash": "280547cf"
     },
-    "dist/assets/index-Bv2uV4wj.js": {
-      "ipo_ts": 1780740883357,
-      "edit_count": 1,
-      "last_lines": 33,
-      "last_ts": 1780740883357,
-      "delisted": false,
-      "last_source": "onEdit",
-      "last_content_hash": "724d818"
-    },
     "dist/assets/index-D-Ci-0xJ.css": {
       "ipo_ts": 1780740883361,
       "edit_count": 1,
@@ -143,6 +134,15 @@
       "delisted": false,
       "last_source": "onEdit",
       "last_content_hash": "50c6793"
+    },
+    "dist/assets/index-BmqA5k--.js": {
+      "ipo_ts": 1780741294684,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780741294684,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "9d6da7c3"
     }
   }
 }

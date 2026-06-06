@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { SettingsProvider } from './contexts/SettingsContext';
+import { SettingsProvider, SHADOW_PRESETS } from './contexts/SettingsContext';
 import { PlaylistProvider, usePlaylists, type PlayerSync } from './contexts/PlaylistContext';
 import { PlayerProvider, usePlayer } from './contexts/PlayerContext';
 import { TerminalProvider, useTerminal } from './contexts/TerminalContext';
@@ -68,6 +68,23 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     if (s.lyricsFloating) {
       player.setLyricsFloating(true);
     }
+
+    // Sync current lyrics settings to main process so they're cached
+    // before the floating window ever opens (survives restart)
+    try {
+      const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
+      window.musicPlayer?.sendLyricsTheme({
+        font: s.customFont ? `"${s.customFont}", ${baseFonts}` : baseFonts,
+        fontSize: s.fontSize || 14, fg: s.fg, fgDim: s['fg-dim'],
+        accent: s.accent, bg: s.bg,
+        lyricsAccent: s.lyricsAccent || '#b1b9f9',
+        lyricsFg: s.lyricsFg || '#cccccc',
+        lyricsNextCount: s.lyricsNextCount || 1,
+        lyricsGap: s.lyricsGap || 10,
+        lyricsShadow: SHADOW_PRESETS[s.lyricsShadow] || '0 0 10px rgba(0,0,0,0.85)',
+        lyricsAlign: s.lyricsAlign || 'center',
+      });
+    } catch {}
   }, []);
 
   return <>{children}</>;
