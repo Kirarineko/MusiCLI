@@ -1,0 +1,61 @@
+{
+  "name": "musicli",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Pseudo-CLI local music player with MP3 metadata and floating lyrics",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "start": "node scripts/dev.mjs",
+    "electron:dev": "node scripts/dev.mjs",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "music-metadata": "^10.6.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^32.2.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12"
+  },
+  "build": {
+    "appId": "com.kirarineko.musicli",
+    "productName": "MusicLI",
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "zip", "arch": ["x64"] }
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "tar.gz", "arch": ["x64"] }
+      ],
+      "category": "Audio"
+    }
+  }
+}
