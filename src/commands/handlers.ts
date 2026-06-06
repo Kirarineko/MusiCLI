@@ -497,18 +497,21 @@ export function registerAllCommands() {
     const c = ctx();
     const sub = (args[0] || '').toLowerCase();
     if (sub === 'f' || sub === 'floating' || sub === 'float' || sub === 'desktop') {
+      const wasOn = c.lyricsFloating;
       await c.toggleFloatingLyrics();
-      c.printLine(c.lyricsFloating ? t('lyricsFloatingOn') : t('lyricsOff'), 'success');
+      c.printLine(!wasOn ? t('lyricsFloatingOn') : t('lyricsOff'), 'success');
     } else if (sub === 't' || sub === 'terminal' || sub === 'term' || sub === 'inline') {
+      const wasOn = c.lyricsTerminal;
       await c.toggleTerminalLyrics();
-      c.printLine(c.lyricsTerminal ? t('lyricsTerminalOn') : t('lyricsOff'), 'success');
+      c.printLine(!wasOn ? t('lyricsTerminalOn') : t('lyricsOff'), 'success');
     } else if (sub === 'off' || sub === 'hide' || sub === 'disable') {
       await c.setLyricsFloating(false);
       await c.setLyricsTerminal(false);
       c.printLine(t('lyricsOff'), 'info');
     } else if (!sub) {
+      const wasOn = c.lyricsTerminal;
       await c.toggleTerminalLyrics();
-      c.printLine(c.lyricsTerminal ? t('lyricsTerminalOn') : t('lyricsOff'), 'success');
+      c.printLine(!wasOn ? t('lyricsTerminalOn') : t('lyricsOff'), 'success');
     } else {
       c.printLine(t('lyricUsage'), 'info');
     }
