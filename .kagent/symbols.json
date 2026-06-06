@@ -1,0 +1,40 @@
+{
+  "symbols": {
+    "CLAUDE.md": {
+      "ipo_ts": 1780723184436,
+      "edit_count": 2,
+      "last_lines": 99,
+      "last_ts": 1780723248710,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "6a2bd829"
+    },
+    "src/contexts/TerminalContext.tsx": {
+      "ipo_ts": 1780723395327,
+      "edit_count": 2,
+      "last_lines": 227,
+      "last_ts": 1780723411637,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "1b449743"
+    },
+    "node_modules/.tmp/tsconfig.app.tsbuildinfo": {
+      "ipo_ts": 1780723420860,
+      "edit_count": 1,
+      "last_lines": 1,
+      "last_ts": 1780723420860,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "84ed4e09"
+    },
+    "dist/assets/index-9WxT6hlP.js": {
+      "ipo_ts": 1780723422401,
+      "edit_count": 1,
+      "last_lines": 33,
+      "last_ts": 1780723422401,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "cd563f0a"
+    }
+  }
+}

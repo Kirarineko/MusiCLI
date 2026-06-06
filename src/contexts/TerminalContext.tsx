@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import type { OutputLine, SelectCandidate, InteractiveItem } from '../types';
 
 type InteractiveMode = 'import' | 'track-pl' | null;
@@ -63,6 +63,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const [iidx, setIidx] = useState(0);
   const [ifilter, setIfilter] = useState('');
   const imodeCallbackRef = useRef<InteractiveCallback | null>(null);
+  const itemsRef = useRef<InteractiveItem[]>([]);
+
+  // Keep ref in sync with state so moveCursor can read latest value
+  useEffect(() => { itemsRef.current = items; }, [items]);
 
   const printLine = useCallback((text: string, className = '') => {
     setLines(prev => [...prev, { id: nextId++, text, className, raw: false }]);
@@ -185,18 +189,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     })));
   }, []);
 
-  // moveCursor uses nested functional updates to read latest items + idx atomically
+  // Read items from ref to avoid React StrictMode double-invocation of nested setters
   const moveCursor = useCallback((delta: number) => {
-    setItems(prevItems => {
-      setIidx(prevIidx => {
-        const vis = prevItems.filter(it => it.visible);
-        if (vis.length === 0) return prevIidx;
-        const curVisIdx = vis.indexOf(prevItems[prevIidx]);
-        if (curVisIdx < 0) return prevItems.indexOf(vis[0]);
-        const nextVisIdx = (curVisIdx + delta + vis.length) % vis.length;
-        return prevItems.indexOf(vis[nextVisIdx]);
-      });
-      return prevItems;
+    const curItems = itemsRef.current;
+    setIidx(prevIidx => {
+      const vis = curItems.filter(it => it.visible);
+      if (vis.length === 0) return prevIidx;
+      const curVisIdx = vis.indexOf(curItems[prevIidx]);
+      if (curVisIdx < 0) return curItems.indexOf(vis[0]);
+      const nextVisIdx = (curVisIdx + delta + vis.length) % vis.length;
+      return curItems.indexOf(vis[nextVisIdx]);
     });
   }, []);
 
