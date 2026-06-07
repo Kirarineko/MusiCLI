@@ -1065,21 +1065,21 @@ export function registerAllCommands() {
         c.printLine(t('syncImporting', { n: manifest.playlist.tracks.length }), 'info');
 
         const newTracks: string[] = [];
-        for (const t of manifest.playlist.tracks) {
+        for (const track of manifest.playlist.tracks) {
           // Copy audio
-          const audioSrc = audioSrcDir + '/' + t.filename;
-          const audioDest = importDir + '/' + t.filename;
+          const audioSrc = audioSrcDir + '/' + track.filename;
+          const audioDest = importDir + '/' + track.filename;
           const copyResult = await window.musicPlayer.copyFile(audioSrc, audioDest);
           if (hasError(copyResult)) {
-            c.printLine(t('syncCopyError', { file: t.filename, err: copyResult.error }), 'error');
+            c.printLine(t('syncCopyError', { file: track.filename, err: copyResult.error }), 'error');
             continue;
           }
           newTracks.push(audioDest);
 
           // Copy LRC if present
-          if (t.lrcFile) {
-            const lrcSrc = lrcSrcDir + '/' + t.lrcFile;
-            const lrcDest = importDir + '/' + t.lrcFile;
+          if (track.lrcFile) {
+            const lrcSrc = lrcSrcDir + '/' + track.lrcFile;
+            const lrcDest = importDir + '/' + track.lrcFile;
             await window.musicPlayer.copyFile(lrcSrc, lrcDest);
           }
         }
