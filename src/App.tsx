@@ -25,69 +25,71 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     initialized.current = true;
 
     // Initialize bridge first (detects Tauri/Electron environment)
-    initBridge().then(() => {
+    // Initialize bridge and load config.
+    async function startup() {
+      await initBridge();
 
-    // Wire PlayerContext functions into PlaylistContext
-    const sync: PlayerSync = {
-      addToPlaylist: player.addToPlaylist,
-      clearPlaylist: player.clearPlaylist,
-      getPlaylist: player.getPlaylist,
-    };
-    playlists.registerPlayerSync(sync);
+      // Wire contexts together.
+      const sync: PlayerSync = {
+        addToPlaylist: player.addToPlaylist,
+        clearPlaylist: player.clearPlaylist,
+        getPlaylist: player.getPlaylist,
+      };
+      playlists.registerPlayerSync(sync);
+      player.registerLyricPrinter((text, cls) => terminal.printLine(text, cls));
+      playlists.ensureDefault();
 
-    // Wire terminal lyric printing into PlayerContext
-    player.registerLyricPrinter((text, cls) => terminal.printLine(text, cls));
-
-    playlists.ensureDefault();
-
-    // Load current playlist tracks into player
-    const pl = playlists.getCurrentPlaylist();
-    if (pl && pl.tracks && pl.tracks.length > 0) {
-      player.clearPlaylist();
-      player.addToPlaylist(pl.tracks);
-    }
-
-    // Auto-detect music folder
-    const s = getStoredSettings();
-    if (!s.musicFolder && isBridgeAvailable()) {
-      try {
-        getBridge().getDefaultMusicDir().then(folder => {
-          getBridge().dirExists(folder).then(exists => {
+      // Auto-detect music folder BEFORE loading config files.
+      // Must await completion so initConfig() sees the folder path.
+      const s = getStoredSettings();
+      if (!s.musicFolder && isBridgeAvailable()) {
+        try {
+          const folder = await getBridge().getDefaultMusicDir();
+          if (folder) {
+            const exists = await getBridge().dirExists(folder);
             if (exists) {
               const stored = getStoredSettings();
               stored.musicFolder = folder;
               setMusicFolder(folder);
-              saveSettings(stored);
+              await saveSettings(stored);
             }
-          });
-        });
-      } catch { /* browser mode */ }
-    }
+          }
+        } catch { /* browser mode */ }
+      }
 
-    // Load config from files FIRST — must complete before any save operations
-    // to avoid overwriting manual file edits with stale localStorage cache.
-    initConfig().then((fileSettings) => {
+      // Now load config from files.  musicFolder is set if available.
+      const fileSettings = await initConfig();
       if (fileSettings) {
         applyCssVars(fileSettings);
       }
-      // Refresh playlists from file-loaded config (replaces stale localStorage state)
+
+      // Refresh playlists from file-loaded config.
       playlists.reloadFromStore();
       const reloadedPl = playlists.getCurrentPlaylist();
       if (reloadedPl && reloadedPl.tracks && reloadedPl.tracks.length > 0) {
         player.clearPlaylist();
         player.addToPlaylist(reloadedPl.tracks);
+      } else {
+        // Fall back to in-memory cache (populated from localStorage at module load).
+        const pl = playlists.getCurrentPlaylist();
+        if (pl && pl.tracks && pl.tracks.length > 0) {
+          player.clearPlaylist();
+          player.addToPlaylist(pl.tracks);
+        }
       }
-      // Restore lyrics state AFTER file config is loaded (uses updated cache)
+
+      // Restore settings from the updated cache.
       const s2 = getStoredSettings();
       if (s2.volume != null) player.setVolume(s2.volume);
       if (s2.lyricsTerminal) {
-        player.setLyricsTerminal(true);
+        await player.setLyricsTerminal(true);
       }
       if (s2.lyricsFloating) {
-        player.setLyricsFloating(true);
+        await player.setLyricsFloating(true);
       }
-    });
-    }); // end initBridge().then()
+    }
+
+    startup();
   }, []);
 
   // Force-sync lyrics settings 200ms after startup (blunt but reliable)

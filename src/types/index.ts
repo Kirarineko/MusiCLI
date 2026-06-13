@@ -140,4 +140,4 @@ export interface ParsedColor {
 }
 
 // Re-export from electron.d.ts for convenience
-export type { MetadataResult } from './electron';
+export type { MetadataResult, LyricsUpdateData, LyricsThemeData } from './electron';
