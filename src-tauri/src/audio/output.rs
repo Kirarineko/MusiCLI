@@ -13,7 +13,7 @@ pub(crate) fn create_stream(
     state: Arc<SharedState>,
 ) -> Result<Box<dyn StreamTrait + Send>, String> {
     match mode {
-        AudioMode::Wasapi => create_wasapi_stream(ring_cons, state),
+        AudioMode::Wasapi => create_default_stream(ring_cons, state),
         AudioMode::Asio => create_asio_stream(ring_cons, state),
     }
 }
@@ -31,7 +31,7 @@ pub(crate) fn device_sample_rate() -> Result<u32, String> {
     Ok(cfg.sample_rate())
 }
 
-fn create_wasapi_stream(
+fn create_default_stream(
     ring_cons: rb::Consumer<f32>,
     state: Arc<SharedState>,
 ) -> Result<Box<dyn StreamTrait + Send>, String> {
@@ -66,7 +66,7 @@ fn create_wasapi_stream(
                     .position_samples
                     .fetch_add(frames as u64, Ordering::Relaxed);
             },
-            |err| eprintln!("[audio-wasapi] error: {}", err),
+            |err| eprintln!("[audio-default] error: {}", err),
             None,
         )
         .map_err(|e| format!("Stream build error: {}", e))?;

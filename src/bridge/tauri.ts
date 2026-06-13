@@ -233,7 +233,7 @@ export const tauriBridge: IBridge = {
     return await invoke<number>('get_duration');
   },
 
-  async setAudioMode(mode: 'wasapi' | 'asio') {
+  async setAudioMode(mode: 'normal' | 'asio') {
     return await invoke<string>('set_audio_mode', { mode });
   },
 

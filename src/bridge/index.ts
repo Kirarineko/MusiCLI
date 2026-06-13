@@ -46,7 +46,7 @@ export interface IBridge {
   setVolume(vol: number): Promise<void>;
   getPosition(): Promise<number>;
   getDuration(): Promise<number>;
-  setAudioMode(mode: 'wasapi' | 'asio'): Promise<string>;
+  setAudioMode(mode: 'normal' | 'asio'): Promise<string>;
   getAudioMode(): Promise<string>;
   listAudioDevices(): Promise<string[]>;
 }

@@ -1154,9 +1154,9 @@ export function registerAllCommands() {
 
     if (sub === 'mode') {
       const modeArg = (args[1] || '').toLowerCase();
-      if (modeArg === 'wasapi' || modeArg === 'normal' || modeArg === 'w') {
+      if (modeArg === 'normal' || modeArg === 'default' || modeArg === 'wasapi' || modeArg === 'w') {
         try {
-          const result = await getBridge().setAudioMode('wasapi');
+          const result = await getBridge().setAudioMode('normal');
           c.printLine(result, 'success');
         } catch (err) {
           c.printLine(String(err), 'error');
@@ -1172,7 +1172,7 @@ export function registerAllCommands() {
         try {
           const current = await getBridge().getAudioMode();
           c.printLine(`<cmd>Audio Mode:</cmd> ${current}`, 'info');
-          c.printRaw('  wasapi     - System mixer (default)');
+          c.printRaw('  normal     - System audio (default)');
           c.printRaw('  asio       - ASIO exclusive (requires ASIO drivers)');
         } catch (err) {
           c.printLine(String(err), 'error');
@@ -1187,7 +1187,7 @@ export function registerAllCommands() {
         c.printLine(String(err), 'error');
       }
     } else {
-      c.printLine('Usage: audio mode [wasapi|asio] | audio devices', 'info');
+      c.printLine('Usage: audio mode [normal|asio] | audio devices', 'info');
     }
   }, 'helpAudio');
 

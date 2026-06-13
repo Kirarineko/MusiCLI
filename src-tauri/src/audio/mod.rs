@@ -18,7 +18,7 @@ pub enum AudioMode {
 impl std::fmt::Display for AudioMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AudioMode::Wasapi => write!(f, "wasapi"),
+            AudioMode::Wasapi => write!(f, "normal"),
             AudioMode::Asio => write!(f, "asio"),
         }
     }
@@ -27,7 +27,7 @@ impl std::fmt::Display for AudioMode {
 impl AudioMode {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "wasapi" | "normal" => Some(AudioMode::Wasapi),
+            "normal" | "default" | "wasapi" => Some(AudioMode::Wasapi),
             "asio" | "exclusive" => Some(AudioMode::Asio),
             _ => None,
         }
@@ -106,7 +106,7 @@ pub async fn set_audio_mode(
     mode: String,
 ) -> Result<String, String> {
     let audio_mode = AudioMode::from_str(&mode)
-        .ok_or_else(|| format!("Unknown audio mode: {}. Use 'wasapi' or 'asio'", mode))?;
+        .ok_or_else(|| format!("Unknown audio mode: {}. Use 'normal' or 'asio'", mode))?;
 
     if audio_mode == AudioMode::Asio {
         #[cfg(not(feature = "asio"))]

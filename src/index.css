@@ -241,9 +241,9 @@ cmd { color: var(--fg-bright); font-weight: bold; }
   text-align: center;
   text-shadow: var(--lyrics-shadow);
   transition: all 0.4s ease;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: break-word;
   max-width: 100%;
 }
 
@@ -273,8 +273,8 @@ cmd { color: var(--fg-bright); font-weight: bold; }
   position: fixed;
   top: 8px;
   right: 8px;
-  width: 0px;
-  height: 0px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: rgba(255,255,255,0.25);
   -webkit-app-region: no-drag;

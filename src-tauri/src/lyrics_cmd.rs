@@ -59,6 +59,7 @@ pub async fn show_lyrics_window(app: AppHandle) -> Result<(), String> {
     .max_inner_size(600.0, 10000.0)
     .transparent(true)
     .decorations(false)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(true)
@@ -116,10 +117,11 @@ pub async fn send_lyrics_theme(app: AppHandle, data: LyricsThemeData) -> Result<
 #[command]
 pub async fn lyrics_auto_size(app: AppHandle, _w: f64, h: f64) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("lyrics") {
-        let new_h = (h + 30.0).max(80.0) as u32;
+        // Use LogicalSize so CSS pixels map 1:1 regardless of DPI scale.
+        let new_h = ((h + 48.0).max(80.0)).round();
         window
-            .set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                width: 600u32,
+            .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width: 600.0,
                 height: new_h,
             }))
             .map_err(|e| e.to_string())?;
