@@ -1,7 +1,7 @@
 {
   "name": "musicli",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Pseudo-CLI local music player with MP3 metadata and floating lyrics",
   "homepage": "https://github.com/KirariNeko/MusicLI",
   "author": "KirariNeko <kirari.neko@outlook.com>",

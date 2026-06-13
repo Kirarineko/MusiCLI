@@ -185,7 +185,7 @@ cmd { color: var(--fg-bright); font-weight: bold; }
   padding: 0 12px;
   background: var(--bg);
   border-top: 2px solid var(--line);
-  border-radius: 0 0 4px 4px;
+  border-radius: 0 0 2px 2px;
 }
 
 #prompt {
