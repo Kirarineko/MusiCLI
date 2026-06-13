@@ -18,7 +18,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: '10'
 
       - uses: actions/setup-node@v4
         with:
@@ -33,12 +33,9 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      - name: Allow esbuild build scripts
-        run: echo 'onlyBuiltDependencies[]=esbuild' > .npmrc
-
       - run: pnpm install
 
-      - name: Build (release)
+      - name: Build
         run: pnpm tauri build
 
       - uses: actions/upload-artifact@v4
@@ -53,7 +50,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: '10'
 
       - uses: actions/setup-node@v4
         with:
@@ -78,12 +75,9 @@ jobs:
             librsvg2-dev \
             libasound2-dev
 
-      - name: Allow esbuild build scripts
-        run: echo 'onlyBuiltDependencies[]=esbuild' > .npmrc
-
       - run: pnpm install
 
-      - name: Build (release)
+      - name: Build
         run: pnpm tauri build
 
       - uses: actions/upload-artifact@v4
