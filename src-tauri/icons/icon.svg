@@ -5,8 +5,8 @@
       <stop offset="100%" stop-color="#0c0c0c"/>
     </linearGradient>
     <linearGradient id="note" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#b1b9f9"/>
-      <stop offset="100%" stop-color="#7e8af0"/>
+      <stop offset="0%" stop-color="#ffb7c5"/>
+      <stop offset="100%" stop-color="#e895a5"/>
     </linearGradient>
   </defs>
   <!-- background -->
@@ -15,11 +15,11 @@
   <text x="64" y="94" text-anchor="middle"
         font-family="'Courier New', 'Consolas', monospace" font-size="64" font-weight="bold"
         fill="url(#note)">
-    <tspan fill="#888888" font-weight="normal">&lt;</tspan>
+    <tspan>&lt;</tspan>
     <tspan>♪</tspan>
-    <tspan fill="#888888" font-weight="normal">&gt;</tspan>
+    <tspan>&gt;</tspan>
   </text>
   <!-- subtle glow ring -->
   <rect width="128" height="128" rx="24" fill="none"
-        stroke="#b1b9f9" stroke-width="1.5" stroke-opacity="0.15"/>
+        stroke="#ffb7c5" stroke-width="1.5" stroke-opacity="0.15"/>
 </svg>
