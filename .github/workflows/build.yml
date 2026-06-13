@@ -84,5 +84,6 @@ jobs:
         with:
           name: musicli-linux
           path: |
+            src-tauri/target/release/musicli
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage
