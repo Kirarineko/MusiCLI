@@ -9,7 +9,6 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  PNPM_ONLY_BUILT_DEPENDENCIES: '["esbuild"]'
 
 jobs:
   windows:
@@ -33,6 +32,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+
+      - name: Allow esbuild build scripts
+        run: echo 'onlyBuiltDependencies[]=esbuild' > .npmrc
 
       - run: pnpm install
 
@@ -75,6 +77,9 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libasound2-dev
+
+      - name: Allow esbuild build scripts
+        run: echo 'onlyBuiltDependencies[]=esbuild' > .npmrc
 
       - run: pnpm install
 
