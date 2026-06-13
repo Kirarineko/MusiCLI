@@ -9,6 +9,7 @@ mod window_cmd;
 pub mod audio;
 
 use std::sync::Mutex;
+use tauri::Manager;
 use audio::engine::AudioEngine;
 
 pub struct AppState {
@@ -20,6 +21,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             audio_engine: Mutex::new(AudioEngine::new()),
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    // Destroy floating lyrics window when main window closes.
+                    if let Some(lyrics) = window.app_handle().get_webview_window("lyrics") {
+                        let _ = lyrics.destroy();
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             dialog_cmd::open_files_dialog,
