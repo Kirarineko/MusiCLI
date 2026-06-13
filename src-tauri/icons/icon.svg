@@ -14,10 +14,8 @@
   <!-- <bracket>♪</bracket> -->
   <text x="64" y="94" text-anchor="middle"
         font-family="'Courier New', 'Consolas', monospace" font-size="64" font-weight="bold"
-        fill="url(#note)">
-    <tspan>&lt;</tspan>
-    <tspan>♪</tspan>
-    <tspan>&gt;</tspan>
+        fill="url(#note)" letter-spacing="-12">
+    &lt;♪&gt;
   </text>
   <!-- subtle glow ring -->
   <rect width="128" height="128" rx="24" fill="none"
