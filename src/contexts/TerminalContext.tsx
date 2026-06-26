@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import type { OutputLine, SelectCandidate, InteractiveItem } from '../types';
 
-type InteractiveMode = 'import' | 'track-pl' | null;
+type InteractiveMode = 'import' | 'track-pl' | 'track-select' | null;
 import { getStoredSettings } from './SettingsContext';
 import { escapeHtml } from '../utils/format';
 import { t } from '../i18n';
@@ -152,7 +152,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     printLine('  ' + t('helpGroupPl'), 'dim');
     printRaw('    cd [name]             ' + t('helpCd'));
     printRaw('    pl create|list|delete|edit|info');
-    printRaw('    track info|pl <n>     ' + t('helpTrack'));
+    printRaw('    track|t info|pl|del|move|copy [n]  ' + t('helpTrack'));
     printRaw('    import                ' + t('helpImport'));
     printLine('  ' + t('helpGroupAppearance'), 'dim');
     printRaw('    set vol <0-100>       ' + t('helpVol'));

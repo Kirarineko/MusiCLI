@@ -27,7 +27,7 @@ export interface CommandContext {
   clearTerminal: () => void;
   enterSelectMode: (candidates: SelectCandidate[]) => void;
   exitSelectMode: () => void;
-  enterImode: (mode: 'import' | 'track-pl', items: InteractiveItem[], cb: (selected: InteractiveItem[]) => void) => void;
+  enterImode: (mode: 'import' | 'track-pl' | 'track-select', items: InteractiveItem[], cb: (selected: InteractiveItem[]) => void) => void;
   exitImode: () => void;
   enterSeekMode: () => void;
   exitSeekMode: () => void;
@@ -361,33 +361,242 @@ export function registerAllCommands() {
   register('track', ['t'], (args) => {
     const c = ctx();
     const sub = (args[0] || '').toLowerCase();
+    const rest = args.slice(1);
     const pl = c.playlist;
     if (pl.length === 0) { c.printLine(t('playlistEmpty'), 'info'); return; }
-    const num = parseInt(args[1], 10);
-    if (isNaN(num) || num < 1 || num > pl.length) { c.printLine(t('trackInvalidNum'), 'error'); return; }
-    const trackPath = pl[num - 1];
-    const trackName = getFileName(trackPath);
 
-    if (sub === 'info') {
-      c.printKV(t('trackInfoTitle') + ': ' + trackName, [[t('trackPath'), trackPath]]);
+    const buildTrackItems = (): InteractiveItem[] =>
+      pl.map((fp, i) => ({ name: `${i + 1}. ${getFileName(fp)}`, path: fp, selected: false, visible: true }));
+
+    const showInfo = async (trackPath: string) => {
+      const name = getFileName(trackPath);
+      c.printKV(t('trackInfoTitle') + ': ' + name, [[t('trackPath'), trackPath]]);
       const inPls = c.getPlaylistsForTrack(trackPath);
       c.printLine(t('trackInPlaylists') + ': ' + (inPls.length > 0 ? inPls.join(', ') : '-'), 'info');
       const allPls = c.listAllPlaylists().map(p => p.name);
       const notIn = allPls.filter(n => !inPls.includes(n));
       if (notIn.length > 0) c.printLine(t('trackNotInPlaylists') + ': ' + notIn.join(', '), 'dim');
-    } else if (sub === 'pl' || sub === 'edit') {
-      const inPls = c.getPlaylistsForTrack(trackPath);
-      const allNames = c.listAllPlaylists().map(p => p.name);
-      const items: InteractiveItem[] = allNames.map(name => ({
-        name, selected: inPls.includes(name), visible: true,
-      }));
-      c.enterImode('track-pl', items, (selected) => {
-        c.syncTrackToPlaylists(trackPath, selected.map(s => s.name));
-        c.printLine(t('trackPlUpdated'), 'success');
-      });
-    } else {
-      c.printLine(t('helpTrack'), 'info');
+    };
+
+    const resolveTarget = (target: string, onSingle: (fp: string) => void) => {
+      const n = parseInt(target, 10);
+      if (!isNaN(n)) {
+        if (n < 1 || n > pl.length) { c.printLine(t('trackInvalidNum'), 'error'); return; }
+        onSingle(pl[n - 1]);
+        return;
+      }
+      const results = fuzzySearch(target, pl);
+      if (results.length === 0) { c.printLine(t('noMatch', { q: target }), 'error'); return; }
+      if (results.length === 1) { onSingle(pl[results[0].idx]); return; }
+      c.enterSelectMode(results.map(r => ({ idx: r.idx, name: r.name })));
+    };
+
+    // ── track <n> (legacy info shortcut) ──
+    const n = parseInt(sub, 10);
+    if (!isNaN(n)) {
+      if (n < 1 || n > pl.length) { c.printLine(t('trackInvalidNum'), 'error'); return; }
+      showInfo(pl[n - 1]);
+      return;
     }
+
+    // ── track info ──
+    if (sub === 'info') {
+      if (rest.length > 0) {
+        resolveTarget(rest[0], fp => showInfo(fp));
+      } else {
+        const items = buildTrackItems();
+        c.enterImode('track-select', items, (selected) => {
+          for (const s of selected) { if (s.path) showInfo(s.path); }
+        });
+      }
+      return;
+    }
+
+    // ── track pl ──
+    if (sub === 'pl' || sub === 'edit') {
+      const subSub = (rest[0] || '').toLowerCase();
+      // track pl delete
+      if (subSub === 'delete') {
+        const items = buildTrackItems();
+        c.enterImode('track-select', items, (tracks) => {
+          const allNames = c.listAllPlaylists().map(p => p.name);
+          c.printLine(t('trackPlDeleteTitle'), 'info');
+          const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: false, visible: true }));
+          c.enterImode('track-pl', plItems, (selectedPls) => {
+            const plName = selectedPls[0]?.name;
+            if (!plName) return;
+            let count = 0;
+            for (const t of tracks) {
+              if (!t.path) continue;
+              const plData = c.getPlaylistData(plName);
+              if (plData && plData.tracks.includes(t.path)) {
+                const inPls = c.getPlaylistsForTrack(t.path);
+                const newPls = inPls.filter(p => p !== plName);
+                c.syncTrackToPlaylists(t.path, newPls);
+                count++;
+              }
+            }
+            c.printLine(t('trackDeleted', { n: count, pl: plName }), 'success');
+          });
+        });
+        return;
+      }
+      // track pl move
+      if (subSub === 'move') {
+        const items = buildTrackItems();
+        c.enterImode('track-select', items, (tracks) => {
+          const allNames = c.listAllPlaylists().map(p => p.name);
+          c.printLine(t('trackPlMoveTitle'), 'info');
+          const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: false, visible: true }));
+          c.enterImode('track-pl', plItems, (selectedPls) => {
+            const pls = selectedPls.map(s => s.name);
+            const defaultPl = c.getCurrentPlName();
+            const keep = new Set([...pls, defaultPl]);
+            let count = 0;
+            for (const t of tracks) {
+              if (!t.path) continue;
+              const current = c.getPlaylistsForTrack(t.path);
+              c.syncTrackToPlaylists(t.path, [...new Set([...pls, ...current.filter(p => keep.has(p))])]);
+              count++;
+            }
+            c.printLine(t('trackMoved', { n: count }), 'success');
+          });
+        });
+        return;
+      }
+      // track pl copy
+      if (subSub === 'copy') {
+        const items = buildTrackItems();
+        c.enterImode('track-select', items, (tracks) => {
+          const allNames = c.listAllPlaylists().map(p => p.name);
+          c.printLine(t('trackPlCopyTitle'), 'info');
+          const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: false, visible: true }));
+          c.enterImode('track-pl', plItems, (selectedPls) => {
+            const pls = selectedPls.map(s => s.name);
+            let count = 0;
+            for (const t of tracks) {
+              if (!t.path) continue;
+              const current = c.getPlaylistsForTrack(t.path);
+              c.syncTrackToPlaylists(t.path, [...new Set([...current, ...pls])]);
+              count++;
+            }
+            c.printLine(t('trackCopied', { n: count }), 'success');
+          });
+        });
+        return;
+      }
+      // track pl (legacy: with number target)
+      if (rest.length > 0 && !subSub) {
+        resolveTarget(rest[0], fp => {
+          const inPls = c.getPlaylistsForTrack(fp);
+          const allNames = c.listAllPlaylists().map(p => p.name);
+          const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: inPls.includes(name), visible: true }));
+          c.enterImode('track-pl', plItems, (selected) => {
+            c.syncTrackToPlaylists(fp, selected.map(s => s.name));
+            c.printLine(t('trackPlUpdated'), 'success');
+          });
+        });
+        return;
+      }
+      // track pl (no args) — batch edit
+      const items = buildTrackItems();
+      c.enterImode('track-select', items, (tracks) => {
+        const allNames = c.listAllPlaylists().map(p => p.name);
+        const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: false, visible: true }));
+        c.enterImode('track-pl', plItems, (selectedPls) => {
+          const names = selectedPls.map(s => s.name);
+          for (const t of tracks) {
+            if (!t.path) continue;
+            c.syncTrackToPlaylists(t.path, names);
+          }
+          c.printLine(t('trackPlUpdated'), 'success');
+        });
+      });
+      return;
+    }
+
+    // ── track delete (shortcut for track pl delete) ──
+    if (sub === 'delete') {
+      const items = buildTrackItems();
+      c.enterImode('track-select', items, (tracks) => {
+        const allNames = c.listAllPlaylists().map(p => p.name);
+        c.printLine(t('trackPlDeleteTitle'), 'info');
+        const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: false, visible: true }));
+        c.enterImode('track-pl', plItems, (selectedPls) => {
+          const plName = selectedPls[0]?.name;
+          if (!plName) return;
+          let count = 0;
+          for (const t of tracks) {
+            if (!t.path) continue;
+            const plData = c.getPlaylistData(plName);
+            if (plData && plData.tracks.includes(t.path)) {
+              const inPls = c.getPlaylistsForTrack(t.path);
+              c.syncTrackToPlaylists(t.path, inPls.filter(p => p !== plName));
+              count++;
+            }
+          }
+          c.printLine(t('trackDeleted', { n: count, pl: plName }), 'success');
+        });
+      });
+      return;
+    }
+
+    // ── track move (shortcut for track pl move) ──
+    if (sub === 'move') {
+      const items = buildTrackItems();
+      c.enterImode('track-select', items, (tracks) => {
+        const allNames = c.listAllPlaylists().map(p => p.name);
+        c.printLine(t('trackPlMoveTitle'), 'info');
+        const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: false, visible: true }));
+        c.enterImode('track-pl', plItems, (selectedPls) => {
+          const pls = selectedPls.map(s => s.name);
+          const defaultPl = c.getCurrentPlName();
+          const keep = new Set([...pls, defaultPl]);
+          let count = 0;
+          for (const t of tracks) {
+            if (!t.path) continue;
+            const current = c.getPlaylistsForTrack(t.path);
+            c.syncTrackToPlaylists(t.path, [...new Set([...pls, ...current.filter(p => keep.has(p))])]);
+            count++;
+          }
+          c.printLine(t('trackMoved', { n: count }), 'success');
+        });
+      });
+      return;
+    }
+
+    // ── track copy (shortcut for track pl copy) ──
+    if (sub === 'copy') {
+      const items = buildTrackItems();
+      c.enterImode('track-select', items, (tracks) => {
+        const allNames = c.listAllPlaylists().map(p => p.name);
+        c.printLine(t('trackPlCopyTitle'), 'info');
+        const plItems: InteractiveItem[] = allNames.map(name => ({ name, selected: false, visible: true }));
+        c.enterImode('track-pl', plItems, (selectedPls) => {
+          const pls = selectedPls.map(s => s.name);
+          let count = 0;
+          for (const t of tracks) {
+            if (!t.path) continue;
+            const current = c.getPlaylistsForTrack(t.path);
+            c.syncTrackToPlaylists(t.path, [...new Set([...current, ...pls])]);
+            count++;
+          }
+          c.printLine(t('trackCopied', { n: count }), 'success');
+        });
+      });
+      return;
+    }
+
+    // ── track (no args) / track <name> → select tracks → show info ──
+    if (!sub) {
+      const items = buildTrackItems();
+      c.enterImode('track-select', items, (selected) => {
+        for (const s of selected) { if (s.path) showInfo(s.path); }
+      });
+      return;
+    }
+    // Ambiguous subcommand — treat as name search for info
+    resolveTarget(sub, fp => showInfo(fp));
   }, 'helpTrack');
 
   // play

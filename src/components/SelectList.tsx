@@ -46,8 +46,9 @@ export function SelectList() {
   if (imode) {
     const vis = filterItems(iitems, ifilter);
     const selected = iitems.filter(it => it.selected).length;
-    const title = imode === 'import' ? t('importTitle') : t('trackPlTitle');
-    html += `<cmd>${escapeHtml(title)} (${selected} ${t('selected')})</cmd>`;
+    const titleKey = imode === 'import' ? 'importTitle' : imode === 'track-select' ? 'trackSelectTitle' : 'trackPlTitle';
+    const hintKey = imode === 'import' ? 'importHint' : imode === 'track-select' ? 'trackSelectHint' : 'trackPlHint';
+    html += `<cmd>${escapeHtml(t(titleKey))} (${selected} ${t('selected')})</cmd>`;
     if (ifilter) html += `  —  <cmd>${escapeHtml(ifilter)}</cmd>`;
     html += '<br><div class="sep-line"></div>';
     const visIdx = getVisibleIdxFn(iitems, iidx);
@@ -59,7 +60,7 @@ export function SelectList() {
       html += `<div${cls}>${marker} ${check} ${escapeHtml(it.name)}</div>`;
     }
     html += '<div class="sep-line"></div>';
-    html += escapeHtml(imode === 'import' ? t('importHint') : t('trackPlHint'));
+    html += escapeHtml(t(hintKey));
   } else if (completeMode) {
     html += `<cmd>${t('completionTitle')}</cmd><br><div class="sep-line"></div>`;
     for (let i = 0; i < completeCandidates.length; i++) {

@@ -14,8 +14,10 @@ export const subCompletions: Record<string, string[]> = {
 
   set: ['vol', 'volume', 'color', 'colors', 'bg', 'background', 'blur', 'font', 'maxlines'],
 
-  track: ['info', 'pl', 'edit'],
-  t: ['info', 'pl', 'edit'],
+  track: ['info', 'pl', 'edit', 'delete', 'move', 'copy'],
+  t: ['info', 'pl', 'edit', 'delete', 'move', 'copy'],
+  'track pl': ['delete', 'move', 'copy'],
+  't pl': ['delete', 'move', 'copy'],
 
   lyric: ['t', 'terminal', 'term', 'inline', 'f', 'floating', 'float', 'desktop', 'off', 'hide', 'disable', 'accent', 'fg', 'next', 'gap', 'size', 'align', 'offset', 'v', 'vertical', 'lock', 'shadow'],
   lyrics: ['t', 'terminal', 'term', 'inline', 'f', 'floating', 'float', 'desktop', 'off', 'hide', 'disable', 'accent', 'fg', 'next', 'gap', 'size', 'align', 'offset', 'v', 'vertical', 'lock', 'shadow'],

@@ -2179,7 +2179,7 @@ dependencies = [
 
 [[package]]
 name = "musicli"
-version = "3.0.1"
+version = "3.2.0"
 dependencies = [
  "base64 0.22.1",
  "cpal",
