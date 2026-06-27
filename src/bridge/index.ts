@@ -70,8 +70,8 @@ export async function initBridge(): Promise<void> {
   if (_bridge) return;
   // Detect Tauri environment
   if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
-    const { tauriBridge } = await import('./tauri');
-    setBridge(tauriBridge);
+    const { initHybridBridge } = await import('./hybrid');
+    setBridge(await initHybridBridge());
     return;
   }
   // Fallback: no bridge available (browser mode)
