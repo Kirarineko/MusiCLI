@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "gui"), windows_subsystem = "console")]
+#![cfg_attr(not(target_os = "linux"), windows_subsystem = "windows")]
 
 use clap::Parser;
 
@@ -14,7 +14,6 @@ struct Cli {
 }
 
 fn main() {
-    eprintln!("DEBUG: gui={} server={}", cfg!(feature = "gui"), cfg!(feature = "server"));
     let cli = Cli::parse();
 
     #[cfg(feature = "server")]
@@ -28,12 +27,11 @@ fn main() {
     };
 
     #[cfg(not(feature = "server"))]
-    let state: std::sync::Arc<std::sync::Mutex<musicli_lib::server_state::ServerState>> =
+    let _state: std::sync::Arc<std::sync::Mutex<musicli_lib::server_state::ServerState>> =
         std::sync::Arc::new(std::sync::Mutex::new(
             musicli_lib::server_state::ServerState::new(),
         ));
 
-    #[cfg(feature = "gui")]
     if !cli.cli && !cli.server {
         return musicli_lib::run_gui();
     }
@@ -56,12 +54,7 @@ fn main() {
     } else {
         #[cfg(feature = "server")]
         {
-            // Server running in background, keep alive
-            loop {
-                std::thread::park();
-            }
+            loop { std::thread::park(); }
         }
-        #[cfg(not(feature = "server"))]
-        { /* GUI mode returns above, no else branch needed */ }
     }
 }

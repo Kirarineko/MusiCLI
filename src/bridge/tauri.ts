@@ -1,9 +1,167 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { LyricsUpdateData, LyricsThemeData } from '../types';
+import type { LyricsUpdateData, LyricsThemeData, MetadataResult } from '../types';
 
 export const tauriBridge = {
+  // --- Audio playback (Tauri invoke) ---
+  async loadTrack(path: string): Promise<number> {
+    return await invoke('load_track', { path });
+  },
+  async audioPlay(path: string) {
+    await invoke('play', { path });
+  },
+  async audioPause() {
+    await invoke('pause');
+  },
+  async audioStop() {
+    await invoke('stop');
+  },
+  async audioSeek(seconds: number) {
+    await invoke('seek', { seconds });
+  },
+  async setVolume(vol: number) {
+    await invoke('set_volume', { vol });
+  },
+  async getPosition(): Promise<number> {
+    return await invoke('get_position');
+  },
+  async getDuration(): Promise<number> {
+    return await invoke('get_duration');
+  },
+  async isPlaying(): Promise<boolean> {
+    return await invoke('is_playing');
+  },
+  async getVolume(): Promise<number> {
+    return await invoke('get_volume');
+  },
+
+  // --- Metadata ---
+  async readMetadata(path: string): Promise<MetadataResult> {
+    const result = await invoke<MetadataResult | { error: string }>('read_metadata', { path });
+    if (typeof result === 'object' && result !== null && 'error' in result) {
+      throw new Error((result as { error: string }).error);
+    }
+    return result as MetadataResult;
+  },
+
+  // --- File operations ---
+  async listAudioFiles(dir: string): Promise<string[] | { error: string }> {
+    try {
+      return await invoke<string[]>('list_audio_files', { dir });
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async readFileBase64(path: string): Promise<string | { error: string }> {
+    try {
+      return await invoke<string>('read_file_base64', { path });
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async dirExists(path: string): Promise<boolean> {
+    try {
+      return await invoke<boolean>('dir_exists', { path });
+    } catch {
+      return false;
+    }
+  },
+  async readFile(path: string): Promise<string | { error: string }> {
+    try {
+      return await invoke<string>('read_file', { path });
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async writeFile(path: string, content: string): Promise<{ success?: boolean; error?: string }> {
+    try {
+      await invoke('write_file', { path, content });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async copyFile(src: string, dest: string): Promise<{ success?: boolean; error?: string }> {
+    try {
+      await invoke('copy_file', { src, dest });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async mkdir(path: string): Promise<{ success?: boolean; error?: string }> {
+    try {
+      await invoke('mkdir', { path });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+
+  // --- Config ---
+  async readConfig(_musicFolder: string, _key: string): Promise<any | null | { error: string }> {
+    // Config is managed by the frontend configStore directly
+    return null;
+  },
+  async writeConfig(_musicFolder: string, _key: string, _data: any): Promise<{ success?: boolean; error?: string }> {
+    return { success: true };
+  },
+
+  // --- Lyrics ---
+  async findLrc(audioPath: string, rootDir: string): Promise<string | null | { error: string }> {
+    try {
+      const result = await invoke<string | null>('find_lrc', { audioPath, rootDir });
+      return result;
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async readLrcOffsets(lrcDir: string): Promise<Record<string, number> | { error: string }> {
+    try {
+      return await invoke<Record<string, number>>('read_lrc_offsets', { lrcDir });
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async writeLrcOffset(lrcDir: string, trackName: string, offset: number): Promise<{ success?: boolean; error?: string }> {
+    try {
+      await invoke('write_lrc_offset', { lrcDir, trackName, offset });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+
+  // --- Audio mode ---
+  async setAudioMode(mode: string) {
+    return await invoke('set_audio_mode', { mode });
+  },
+  async getAudioMode() {
+    return await invoke('get_audio_mode');
+  },
+  async listAudioDevices(): Promise<string[]> {
+    return await invoke('list_audio_devices');
+  },
+
+  // --- ZIP ---
+  async createZip(srcDir: string, destPath: string): Promise<{ success?: boolean; error?: string }> {
+    try {
+      await invoke('create_zip', { srcDir, destPath });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async extractZip(zipPath: string, destDir: string): Promise<{ success?: boolean; error?: string }> {
+    try {
+      await invoke('extract_zip', { zipPath, destDir });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+
   // --- File dialogs ---
   async selectFiles() {
     const result = await open({

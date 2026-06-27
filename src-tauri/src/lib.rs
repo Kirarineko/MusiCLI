@@ -1,29 +1,22 @@
-#[cfg(feature = "gui")]
 mod dialog_cmd;
-#[cfg(feature = "gui")]
 mod lyrics_cmd;
-#[cfg(feature = "gui")]
 mod window_cmd;
 pub mod audio;
 pub mod core;
+mod commands;
 pub mod lrc_parser;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod server_state;
 
-#[cfg(feature = "gui")]
 use std::sync::Mutex;
-#[cfg(feature = "gui")]
 use tauri::Manager;
-#[cfg(feature = "gui")]
 use audio::engine::AudioEngine;
 
-#[cfg(feature = "gui")]
 pub struct AppState {
     pub audio_engine: Mutex<AudioEngine>,
 }
 
-#[cfg(feature = "gui")]
 pub fn run_gui() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -69,6 +62,19 @@ pub fn run_gui() {
             audio::set_audio_mode,
             audio::get_audio_mode,
             audio::list_audio_devices,
+            commands::read_metadata,
+            commands::list_audio_files,
+            commands::read_file_base64,
+            commands::dir_exists,
+            commands::read_file,
+            commands::write_file,
+            commands::copy_file,
+            commands::mkdir,
+            commands::find_lrc,
+            commands::read_lrc_offsets,
+            commands::write_lrc_offset,
+            commands::create_zip,
+            commands::extract_zip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
