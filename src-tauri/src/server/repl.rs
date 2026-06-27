@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use rustyline::error::ReadlineError;
-use rustyline::DefaultEditor;
+use rustyline::{DefaultEditor, ExternalPrinter};
 
 use crate::audio::AudioMode;
 use crate::server_state::{NamedPlaylist, ServerState};
@@ -114,11 +114,11 @@ fn load_lyrics(s: &ServerState, mp3_path: &str) {
     }
 }
 
-// ── Status thread (uses ANSI escape, no ExternalPrinter needed) ──
+// ── Status thread (uses rustyline ExternalPrinter) ──
 
-fn spawn_status(st: Arc<Mutex<ServerState>>) -> thread::JoinHandle<()> {
+fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter + Send + 'static) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut last_pos = -1.0; let mut last_lid: i32 = -2;
+        let mut last_pos = -1.0;
         loop {
             thread::sleep(Duration::from_millis(200));
             let s = st.lock().unwrap(); let engine = s.audio_engine.lock().unwrap();
@@ -129,27 +129,21 @@ fn spawn_status(st: Arc<Mutex<ServerState>>) -> thread::JoinHandle<()> {
             let track = s.current_index.lock().unwrap().and_then(|i| s.playlist.lock().unwrap().get(i).cloned())
                 .and_then(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
             let bar = bar_str(pos, dur, s.progress_width, s.progress_filled, s.progress_empty);
-            let mut lines = format!("  {} {}  {}  [{}/{}]  vol: {}\n", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
+            let mut line = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
             let ll = s.lrc_lines.lock().unwrap();
             if *s.lrc_enabled.lock().unwrap() && !ll.is_empty() {
                 let ci = crate::lrc_parser::get_current_line_idx(&ll, pos);
-                if ci != last_lid { last_lid = ci;
-                    if ci >= 0 { lines.push_str(&format!("  \x1B[33m♪\x1B[0m {}\n", ll[ci as usize].text));
-                        let nc = *s.lrc_next_count.lock().unwrap();
-                        for i in 1..=nc.min(ll.len().saturating_sub(ci as usize + 1)) {
-                            let idx = ci as usize + i; if idx < ll.len() { lines.push_str(&format!("    {}\n", ll[idx].text)); }
-                        }
-                    }
+                if ci >= 0 {
+                    line.push_str(&format!("  |  \x1B[33m♪\x1B[0m {}", ll[ci as usize].text));
                 }
             }
             drop(ll); drop(engine); drop(s);
-            if (pos - last_pos).abs() > 0.05 {
+            if (pos - last_pos).abs() > 0.5 {
                 last_pos = pos;
-                // Write status above prompt using ANSI escapes
-                print!("\x1B7\n\x1B[{}A{}\x1B[J\x1B8", 6, lines);
-                let _ = io::stdout().flush();
+                let _ = printer.print(format!("\r{}", line));
             }
         }
+        let _ = printer.print(String::new());
     })
 }
 
@@ -186,7 +180,9 @@ pub fn run_repl(state: Arc<Mutex<ServerState>>, _server_url: Option<&str>) {
                 let now = state.lock().unwrap().audio_engine.lock().unwrap().is_playing();
                 if !was && now {
                     if let Some(h) = handle.take() { h.join().ok(); }
-                    handle = Some(spawn_status(state.clone()));
+                    if let Ok(printer) = rl.create_external_printer() {
+                        handle = Some(spawn_status(state.clone(), printer));
+                    }
                 } else if was && !now {
                     if let Some(h) = handle.take() { h.join().ok(); }
                 }
