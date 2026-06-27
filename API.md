@@ -213,6 +213,19 @@ Set LRC offset for a track (0 = clear).
 ```
 **Response** `204`
 
+### GET /lyrics/parse
+Search and parse LRC file, return time-stamped lines.
+
+**Query** `?audio_path=/music/song.mp3` or `?lrc_path=/music/lrc/song.lrc`
+
+**Response** `200`
+```json
+[
+  { "time": 4.26, "text": "海浪无声将夜幕深深淹没" },
+  { "time": 15.00, "text": "漫过天空尽头的角落" }
+]
+```
+
 ## Sync
 
 ### POST /sync/export
@@ -275,6 +288,9 @@ curl "http://127.0.0.1:34881/files?dir=/music"
 
 # Search lyrics
 curl "http://127.0.0.1:34881/lyrics?audio_path=/music/song.mp3"
+
+# Parse lyrics
+curl "http://127.0.0.1:34881/lyrics/parse?audio_path=/music/song.mp3"
 
 # Read config
 curl "http://127.0.0.1:34881/config?key=settings"
