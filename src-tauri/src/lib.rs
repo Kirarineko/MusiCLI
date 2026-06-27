@@ -7,6 +7,7 @@ mod window_cmd;
 pub mod audio;
 pub mod core;
 pub mod lrc_parser;
+#[cfg(feature = "server")]
 pub mod server;
 pub mod server_state;
 
