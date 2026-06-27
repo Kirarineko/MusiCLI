@@ -17,20 +17,26 @@ use crate::server_state::ServerState as SState;
 type SharedState = Arc<Mutex<SState>>;
 
 pub fn start_in_background(state: Arc<Mutex<SState>>, port: u16) -> u16 {
-    let addr = format!("127.0.0.1:{}", port);
-    let listener = TcpListener::bind(&addr).expect("Failed to bind HTTP server");
-    let port = listener.local_addr().unwrap().port();
-    let listener = tokio::net::TcpListener::from_std(listener).expect("Failed to convert listener");
+    // Bind a temporary socket to discover the actual port, then release it.
+    // The real listener is bound inside the tokio runtime to avoid
+    // tokio's from_std compatibility issues on Linux.
+    let probe = TcpListener::bind(format!("127.0.0.1:{}", port))
+        .expect("Failed to bind HTTP server probe");
+    let actual_port = probe.local_addr().unwrap().port();
+    drop(probe);
 
     let s = state.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         rt.block_on(async {
+            let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", actual_port))
+                .await
+                .expect("Failed to bind HTTP server");
             axum::serve(listener, build_router(s)).await.expect("HTTP server error");
         });
     });
 
-    port
+    actual_port
 }
 
 pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
