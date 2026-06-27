@@ -5,7 +5,10 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::audio::AudioMode;
@@ -46,6 +49,13 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/files", get(list_files))
         .route("/devices", get(devices))
         .route("/audio-mode", get(get_audio_mode).post(set_audio_mode))
+        .route("/config", get(get_config).put(put_config))
+        .route("/lyrics", get(search_lyrics))
+        .route("/lyrics/offsets", get(get_lyrics_offsets).post(set_lyrics_offset))
+        .route("/files/list", get(list_dir_files))
+        .route("/files/read", get(read_file_base64))
+        .route("/sync/export", post(export_sync))
+        .route("/sync/import", post(import_sync))
         .with_state(state)
 }
 
@@ -318,4 +328,250 @@ async fn set_audio_mode(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, format!("Unknown mode: {}", req.mode)))?;
     engine.set_mode(am);
     Ok(Json(engine.get_mode().to_string()))
+}
+
+// ── Config ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ConfigKeyQuery {
+    key: String,
+}
+
+async fn get_config(
+    state: AxumState<SharedState>,
+    Query(q): Query<ConfigKeyQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    crate::config_cmd::read_config_sync(&mf, &q.key)
+        .map(|v| Json(v.unwrap_or(serde_json::Value::Null)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn put_config(
+    state: AxumState<SharedState>,
+    Query(q): Query<ConfigKeyQuery>,
+    Json(data): Json<serde_json::Value>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    crate::config_cmd::write_config_sync(&mf, &q.key, &data)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(StatusCode::OK)
+}
+
+// ── Lyrics ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct LyricsQuery {
+    audio_path: String,
+}
+
+async fn search_lyrics(
+    state: AxumState<SharedState>,
+    Query(q): Query<LyricsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    let result = crate::core::lyrics::find_lrc(&q.audio_path, &mf)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "lrc_path": result })))
+}
+
+#[derive(Deserialize)]
+struct LrcOffsetsQuery {
+    lrc_dir: String,
+}
+
+async fn get_lyrics_offsets(
+    state: AxumState<SharedState>,
+    Query(q): Query<LrcOffsetsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // music_folder is available but lrc_dir is explicit
+    let _ = state;
+    let offsets = crate::core::lyrics::read_lrc_offsets(&q.lrc_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!(offsets)))
+}
+
+#[derive(Deserialize)]
+struct LrcOffsetWriteRequest {
+    lrc_dir: String,
+    track_name: String,
+    offset_ms: i64,
+}
+
+async fn set_lyrics_offset(
+    state: AxumState<SharedState>,
+    Json(req): Json<LrcOffsetWriteRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let _ = state;
+    crate::core::lyrics::write_lrc_offset(&req.lrc_dir, &req.track_name, req.offset_ms)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(StatusCode::OK)
+}
+
+// ── Files ───────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct DirQuery {
+    dir: String,
+}
+
+async fn list_dir_files(
+    Query(q): Query<DirQuery>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    crate::core::files::list_audio_files(&q.dir)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(Deserialize)]
+struct PathQuery {
+    path: String,
+}
+
+async fn read_file_base64(
+    Query(q): Query<PathQuery>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    crate::core::files::read_file_base64(&q.path)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+// ── Sync ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SyncExportRequest {
+    dest_zip: String,
+    #[serde(default)]
+    playlist_names: Vec<String>,
+}
+
+async fn export_sync(
+    state: AxumState<SharedState>,
+    Json(req): Json<SyncExportRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+
+    // Build a lightweight export: read playlists, filter if needed, write JSON, zip it
+    use crate::core::playlist::{get_playlist, list_playlists};
+    let infos = list_playlists(&mf)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let names_to_export: Vec<String> = if req.playlist_names.is_empty() {
+        infos.iter().map(|i| i.name.clone()).collect()
+    } else {
+        req.playlist_names.clone()
+    };
+
+    let mut export: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    for name in &names_to_export {
+        if let Ok(Some(pl)) = get_playlist(&mf, name) {
+            export.insert(name.clone(), serde_json::json!(pl));
+        }
+    }
+    let current = crate::core::playlist::get_current_playlist_name(&mf)
+        .unwrap_or_else(|_| "Default".into());
+    let export_obj = serde_json::json!({
+        "playlists": export,
+        "current": current,
+    });
+    let json_bytes = serde_json::to_vec_pretty(&export_obj)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Write playlists.json into a ZIP
+    if let Some(parent) = Path::new(&req.dest_zip).parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+    let zip_file = fs::File::create(&req.dest_zip)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut zip = zip::ZipWriter::new(zip_file);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file("playlists.json", opts)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    zip.write_all(&json_bytes)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    zip.finish()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+struct SyncImportRequest {
+    zip_path: String,
+}
+
+async fn import_sync(
+    state: AxumState<SharedState>,
+    Json(req): Json<SyncImportRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+
+    let zip_file = fs::File::open(&req.zip_path)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Cannot open ZIP: {}", e)))?;
+    let mut archive = zip::ZipArchive::new(zip_file)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ZIP: {}", e)))?;
+
+    // Look for playlists.json inside the ZIP
+    let mut playlist_json: Option<String> = None;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if entry.name() == "playlists.json" {
+            let mut content = String::new();
+            entry.read_to_string(&mut content)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            playlist_json = Some(content);
+            break;
+        }
+    }
+
+    let content = playlist_json
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "No playlists.json found in ZIP".to_string()))?;
+    let incoming: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Malformed playlists.json: {}", e)))?;
+
+    // Merge into existing playlists file
+    let path = Path::new(&mf).join("config").join("playlists.json");
+    let mut existing: serde_json::Value = if path.exists() {
+        let raw = fs::read_to_string(&path)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        serde_json::from_str(&raw).unwrap_or(serde_json::json!({ "playlists": {}, "current": "Default" }))
+    } else {
+        serde_json::json!({ "playlists": {}, "current": "Default" })
+    };
+
+    if let (Some(in_pls), Some(ex_pls)) = (
+        incoming.get("playlists").and_then(|v| v.as_object()),
+        existing.get_mut("playlists").and_then(|v| v.as_object_mut()),
+    ) {
+        for (name, pl) in in_pls {
+            if !ex_pls.contains_key(name) {
+                ex_pls.insert(name.clone(), pl.clone());
+            }
+        }
+    }
+
+    let merged_json = serde_json::to_string_pretty(&existing)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+    fs::write(&path, merged_json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let imported_count = incoming
+        .get("playlists")
+        .and_then(|v| v.as_object())
+        .map(|o| o.len())
+        .unwrap_or(0);
+    Ok(Json(serde_json::json!({ "imported": imported_count })))
 }
