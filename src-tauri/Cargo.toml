@@ -35,6 +35,10 @@ symphonia = { version = "0.6", features = [
     "aac",
     "isomp4",
     "alac",
+    "flac",
+    "vorbis",
+    "pcm",
+    "wav",
 ] }
 
 # Audio output (WASAPI default + ASIO optional)
@@ -54,10 +58,10 @@ walkdir = "2"
 base64 = "0.22"
 dirs = "5"
 regex = "1"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = "0.4"
 
 # Headless / server mode
 axum = { version = "0.8", optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"], optional = true }
 rustyline = { version = "15", optional = true }
 clap = { version = "4", features = ["derive"] }

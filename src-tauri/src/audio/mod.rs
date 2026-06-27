@@ -134,6 +134,20 @@ pub async fn set_audio_mode(
 
 #[cfg(feature = "gui")]
 #[command]
+pub fn is_playing(state: tauri::State<'_, crate::AppState>) -> Result<bool, String> {
+    let engine = state.audio_engine.lock().map_err(|e| e.to_string())?;
+    Ok(engine.is_playing())
+}
+
+#[cfg(feature = "gui")]
+#[command]
+pub fn get_volume(state: tauri::State<'_, crate::AppState>) -> Result<u32, String> {
+    let engine = state.audio_engine.lock().map_err(|e| e.to_string())?;
+    Ok(engine.get_volume())
+}
+
+#[cfg(feature = "gui")]
+#[command]
 pub async fn get_audio_mode(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let engine = state.audio_engine.lock().unwrap();
     Ok(engine.get_mode().to_string())

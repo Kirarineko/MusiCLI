@@ -82,6 +82,8 @@ pub fn run_gui() {
             audio::stop,
             audio::seek,
             audio::set_volume,
+            audio::is_playing,
+            audio::get_volume,
             audio::get_position,
             audio::get_duration,
             audio::set_audio_mode,
