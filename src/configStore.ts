@@ -125,7 +125,11 @@ function defaultPlaylistsData(): { pls: Record<string, Playlist>; cur: string } 
 function loadFromLs<T>(lsKey: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(lsKey);
-    if (raw) return JSON.parse(raw) as T;
+    if (raw) {
+      // lang is stored as a raw string (not JSON); don't parse it
+      if (lsKey === LS_KEYS.lang) return raw as T;
+      return JSON.parse(raw) as T;
+    }
   } catch { /* ignore */ }
   return fallback;
 }

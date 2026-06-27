@@ -156,73 +156,28 @@ pub fn write_config(key: String, value: String) -> Result<(), String> {
 }
 
 // --- Server control (GUI command) ---
-#[cfg(feature = "server")]
-static SERVER_THREAD: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
-#[cfg(feature = "server")]
-static SERVER_PORT: std::sync::Mutex<u16> = std::sync::Mutex::new(0);
 
 #[tauri::command]
-pub fn server_start(app_handle: tauri::AppHandle) -> Result<String, String> {
-    #[cfg(feature = "server")]
-    {
-        let mut guard = SERVER_THREAD.lock().map_err(|e| e.to_string())?;
-        if guard.is_some() {
-            return Err("Server already running".into());
-        }
-
-        let state = std::sync::Arc::new(std::sync::Mutex::new(
-            crate::server_state::ServerState::new(),
-        ));
-        let port = crate::server::http::start_in_background(state, 0);
-
-        *SERVER_PORT.lock().map_err(|e| e.to_string())? = port;
-        *guard = None; // Thread is detached in start_in_background
-
-        std::env::set_var("MUSICLI_HTTP_PORT", port.to_string());
-
-        // Send port to frontend
-        let _ = app_handle.emit("server:started", serde_json::json!({ "port": port }));
-
-        Ok(format!("Server started on http://127.0.0.1:{}", port))
+pub fn server_start() -> Result<String, String> {
+    let port = std::env::var("MUSICLI_HTTP_PORT").unwrap_or_default();
+    if port.is_empty() || port == "0" {
+        return Err("Server not started".into());
     }
-    #[cfg(not(feature = "server"))]
-    {
-        Err("Server feature not compiled. Rebuild with --features server".into())
-    }
+    Ok(format!("Server running on http://127.0.0.1:{}", port))
 }
 
 #[tauri::command]
 pub fn server_stop() -> Result<String, String> {
-    #[cfg(feature = "server")]
-    {
-        let port = *SERVER_PORT.lock().map_err(|e| e.to_string())?;
-        if port == 0 {
-            return Err("Server is not running".into());
-        }
-        // The server thread is detached; we just mark it as stopped
-        *SERVER_PORT.lock().map_err(|e| e.to_string())? = 0;
-        std::env::remove_var("MUSICLI_HTTP_PORT");
-        Ok("Server stopped".into())
-    }
-    #[cfg(not(feature = "server"))]
-    {
-        Err("Server feature not compiled".into())
-    }
+    // Server is managed by main.rs — cannot stop from GUI
+    Ok("Server is managed by the application".into())
 }
 
 #[tauri::command]
 pub fn server_status() -> Result<String, String> {
-    #[cfg(feature = "server")]
-    {
-        let port = *SERVER_PORT.lock().map_err(|e| e.to_string())?;
-        if port > 0 {
-            Ok(format!("Running on http://127.0.0.1:{}", port))
-        } else {
-            Ok("Not running".into())
-        }
-    }
-    #[cfg(not(feature = "server"))]
-    {
-        Ok("Server feature not compiled".into())
+    let port = std::env::var("MUSICLI_HTTP_PORT").unwrap_or_default();
+    if port.is_empty() || port == "0" {
+        Ok("Not running".into())
+    } else {
+        Ok(format!("Running on http://127.0.0.1:{}", port))
     }
 }

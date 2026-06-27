@@ -63,29 +63,14 @@ export function registerSystemCommands() {
   register('server', ['srv'], async (args) => {
     const c = ctx();
     const sub = (args[0] || '').toLowerCase();
-    if (sub === 'start') {
-      try {
-        await import('@tauri-apps/api/core').then(({ invoke }) =>
-          invoke<string>('server_start')
-        ).then(result => c.printLine(result, 'success'))
-        .catch((err: unknown) => c.printLine(String(err), 'error'));
-      } catch (err) { c.printLine(String(err), 'error'); }
-    } else if (sub === 'stop') {
-      try {
-        await import('@tauri-apps/api/core').then(({ invoke }) =>
-          invoke<string>('server_stop')
-        ).then(result => c.printLine(result, 'info'))
-        .catch((err: unknown) => c.printLine(String(err), 'error'));
-      } catch (err) { c.printLine(String(err), 'error'); }
-    } else if (sub === 'status') {
-      try {
-        await import('@tauri-apps/api/core').then(({ invoke }) =>
-          invoke<string>('server_status')
-        ).then(result => c.printLine(result, 'info'))
-        .catch((err: unknown) => c.printLine(String(err), 'error'));
-      } catch (err) { c.printLine(String(err), 'error'); }
-    } else {
-      c.printLine('Usage: server start | server stop | server status', 'info');
+    const invokeFn: any = (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__)
+      ? (await import('@tauri-apps/api/core')).invoke
+      : () => Promise.reject('Not in Tauri');
+    try {
+      const result = await invokeFn(sub === 'start' ? 'server_start' : sub === 'stop' ? 'server_stop' : 'server_status');
+      c.printLine(String(result), 'info');
+    } catch (err) {
+      c.printLine(String(err), 'error');
     }
   }, 'helpServer');
 }

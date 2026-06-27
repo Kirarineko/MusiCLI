@@ -5,7 +5,6 @@ pub mod audio;
 pub mod core;
 mod commands;
 pub mod lrc_parser;
-#[cfg(feature = "server")]
 pub mod server;
 pub mod server_state;
 

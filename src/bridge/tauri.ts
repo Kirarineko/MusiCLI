@@ -100,12 +100,24 @@ export const tauriBridge = {
   },
 
   // --- Config ---
-  async readConfig(_musicFolder: string, _key: string): Promise<any | null | { error: string }> {
-    // Config is managed by the frontend configStore directly
-    return null;
+  async readConfig(musicFolder: string, key: string): Promise<any | null | { error: string }> {
+    try {
+      const path = `${musicFolder.replace(/\/$/, '')}/config/${key}.json`;
+      const raw = await invoke<string>('read_file', { path });
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   },
-  async writeConfig(_musicFolder: string, _key: string, _data: any): Promise<{ success?: boolean; error?: string }> {
-    return { success: true };
+  async writeConfig(musicFolder: string, key: string, data: any): Promise<{ success?: boolean; error?: string }> {
+    try {
+      const path = `${musicFolder.replace(/\/$/, '')}/config/${key}.json`;
+      const content = typeof data === 'string' ? JSON.stringify(data) : JSON.stringify(data);
+      await invoke('write_file', { path, content });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
   },
 
   // --- Lyrics ---

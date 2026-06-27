@@ -9,27 +9,32 @@ interface SafeHtmlProps {
 }
 
 function parseSafeHtml(html: string): string {
+  // Escape first, then selectively unescape whitelisted tags
   let escaped = html
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
   for (const tag of ALLOWED_TAGS) {
-    escaped = escaped
-      .replace(new RegExp(`&lt;${tag}\\b`, 'g'), `<${tag}`)
-      .replace(new RegExp(`&lt;/${tag}&gt;`, 'g'), `</${tag}>`);
+    // Opening tags with optional attributes: <tag attr="val"> or <tag>
     escaped = escaped.replace(
-      new RegExp(`&lt;${tag}([^&]*?)&gt;`, 'g'),
-      (_, attrs) => {
-        const decoded = attrs.replace(/&quot;/g, '"').replace(/&#x27;/g, "'");
-        return `<${tag}${decoded}>`;
-      }
+      new RegExp(`&lt;${tag}(\\s[^&]*?)&gt;`, 'g'),
+      `<${tag}$1>`
     );
+    // Opening tags without attributes: <tag>
+    escaped = escaped.replace(
+      new RegExp(`&lt;${tag}&gt;`, 'g'),
+      `<${tag}>`
+    );
+    // Closing tags: </tag>
     escaped = escaped.replace(
       new RegExp(`&lt;/${tag}&gt;`, 'g'),
       `</${tag}>`
     );
   }
+
+  // Restore attribute quotes
+  escaped = escaped.replace(/&quot;/g, '"').replace(/&#x27;/g, "'");
 
   return escaped;
 }
