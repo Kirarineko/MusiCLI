@@ -13,6 +13,7 @@ import { FloatingLyrics } from './components/FloatingLyrics';
 import { getStoredSettings } from './contexts/SettingsContext';
 import { initConfig, setMusicFolder, saveSettings } from './configStore';
 import { getBridge, isBridgeAvailable, initBridge } from './bridge';
+import { waitFor } from './utils/waitFor';
 
 function AppInitializer({ children }: { children: React.ReactNode }) {
   const player = usePlayer();
@@ -74,29 +75,30 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     startup();
   }, []);
 
-  // Force-sync lyrics settings 200ms after startup (blunt but reliable)
+  // Force-sync lyrics settings after startup
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const s = getStoredSettings();
-      const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
-      if (isBridgeAvailable()) {
-        getBridge().sendLyricsTheme({
-        font: s.customFont ? `"${s.customFont}", ${baseFonts}` : baseFonts,
-        fontSize: s.fontSize || 14, fg: s.fg, fgDim: s['fg-dim'],
-        accent: s.accent, bg: s.bg,
-        lyricsAccent: s.lyricsAccent || '#b1b9f9',
-        lyricsFg: s.lyricsFg || '#cccccc',
-        lyricsNextCount: s.lyricsNextCount || 1,
-        lyricsGap: s.lyricsGap || 10,
-        lyricsShadow: SHADOW_PRESETS[s.lyricsShadow] || '0 0 10px rgba(0,0,0,0.85)',
-        lyricsAlign: s.lyricsAlign || 'center',
-        lyricsCurrentSize: s.lyricsCurrentSize || 24,
-        lyricsNextSize: s.lyricsNextSize || 14,
-        lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[s.lyricsVertical || 'off'],
-        });
-      }
-    }, 200);
-    return () => clearTimeout(timer);
+    waitFor(() => document.getElementById('lyrics-container'), 3000)
+      .then(() => {
+        const s = getStoredSettings();
+        const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
+        if (isBridgeAvailable()) {
+          getBridge().sendLyricsTheme({
+          font: s.customFont ? `"${s.customFont}", ${baseFonts}` : baseFonts,
+          fontSize: s.fontSize || 14, fg: s.fg, fgDim: s['fg-dim'],
+          accent: s.accent, bg: s.bg,
+          lyricsAccent: s.lyricsAccent || '#b1b9f9',
+          lyricsFg: s.lyricsFg || '#cccccc',
+          lyricsNextCount: s.lyricsNextCount || 1,
+          lyricsGap: s.lyricsGap || 10,
+          lyricsShadow: SHADOW_PRESETS[s.lyricsShadow] || '0 0 10px rgba(0,0,0,0.85)',
+          lyricsAlign: s.lyricsAlign || 'center',
+          lyricsCurrentSize: s.lyricsCurrentSize || 24,
+          lyricsNextSize: s.lyricsNextSize || 14,
+          lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[s.lyricsVertical || 'off'],
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   return <>{children}</>;

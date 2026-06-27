@@ -4,6 +4,7 @@ import { getStoredSettings, SHADOW_PRESETS, useSettings } from './SettingsContex
 import { usePlaylists } from './PlaylistContext';
 import { saveSettings as saveSettingsToStore } from '../configStore';
 import { parseLRC, getCurrentLineIdx } from '../utils/lrc';
+import { waitFor } from '../utils/waitFor';
 import { getBridge } from '../bridge';
 
 function hasError(obj: unknown): obj is { error: string } {
@@ -107,18 +108,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       lyricsFloatingRef.current = true;
       try { getBridge().showFloatingLyrics(); } catch {}
       // Force-refresh floating lyrics config
-      setTimeout(() => {
-        const cycle: Array<'off' | 'rl' | 'lr'> = ['off', 'rl', 'lr'];
-        const cur = getStoredSettings().lyricsVertical || 'off';
-        let step = 0;
-        const tick = () => {
-          step++;
-          const next = cycle[(cycle.indexOf(cur as 'off'|'rl'|'lr') + step) % 3];
-          settings.saveSettings({ lyricsVertical: next });
-          if (step < 3) setTimeout(tick, 150);
-        };
-        tick();
-      }, 600);
+      waitFor(() => document.getElementById('lyrics-container'), 3000)
+        .then(() => {
+          const cycle: Array<'off' | 'rl' | 'lr'> = ['off', 'rl', 'lr'];
+          const cur = getStoredSettings().lyricsVertical || 'off';
+          let step = 0;
+          const tick = () => {
+            step++;
+            const next = cycle[(cycle.indexOf(cur as 'off'|'rl'|'lr') + step) % 3];
+            settings.saveSettings({ lyricsVertical: next });
+            if (step < 3) setTimeout(tick, 150);
+          };
+          tick();
+        })
+        .catch(() => {});
     }
   }, []);
 
@@ -496,25 +499,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setLyricsFloatingState(v);
     if (v) {
       try { await getBridge().showFloatingLyrics(); } catch {}
-      // Force-sync lyrics settings 200ms after opening
-      setTimeout(() => {
-        const s2 = getStoredSettings();
-        const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
-        getBridge().sendLyricsTheme({
-          font: s2.customFont ? `"${s2.customFont}", ${baseFonts}` : baseFonts,
-          fontSize: s2.fontSize || 14, fg: s2.fg, fgDim: s2['fg-dim'],
-          accent: s2.accent, bg: s2.bg,
-          lyricsAccent: s2.lyricsAccent || '#b1b9f9',
-          lyricsFg: s2.lyricsFg || '#cccccc',
-          lyricsNextCount: s2.lyricsNextCount || 1,
-          lyricsGap: s2.lyricsGap || 10,
-          lyricsShadow: SHADOW_PRESETS[s2.lyricsShadow] || SHADOW_PRESETS.medium,
-          lyricsAlign: s2.lyricsAlign || 'center',
-          lyricsCurrentSize: s2.lyricsCurrentSize || 24,
-          lyricsNextSize: s2.lyricsNextSize || 14,
-          lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[s2.lyricsVertical || 'off'],
-        });
-      }, 200);
+      // Force-sync lyrics settings after opening
+      try { await waitFor(() => document.getElementById('lyrics-container'), 3000); } catch {}
+      const s2 = getStoredSettings();
+      const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
+      getBridge().sendLyricsTheme({
+        font: s2.customFont ? `"${s2.customFont}", ${baseFonts}` : baseFonts,
+        fontSize: s2.fontSize || 14, fg: s2.fg, fgDim: s2['fg-dim'],
+        accent: s2.accent, bg: s2.bg,
+        lyricsAccent: s2.lyricsAccent || '#b1b9f9',
+        lyricsFg: s2.lyricsFg || '#cccccc',
+        lyricsNextCount: s2.lyricsNextCount || 1,
+        lyricsGap: s2.lyricsGap || 10,
+        lyricsShadow: SHADOW_PRESETS[s2.lyricsShadow] || SHADOW_PRESETS.medium,
+        lyricsAlign: s2.lyricsAlign || 'center',
+        lyricsCurrentSize: s2.lyricsCurrentSize || 24,
+        lyricsNextSize: s2.lyricsNextSize || 14,
+        lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[s2.lyricsVertical || 'off'],
+      });
     } else {
       try { await getBridge().hideFloatingLyrics(); } catch {}
     }
