@@ -140,7 +140,7 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             drop(ll); drop(engine); drop(s);
             if (pos - last_pos).abs() > 0.5 {
                 last_pos = pos;
-                let _ = printer.print(format!("\r{}", line));
+                let _ = printer.print(format!("\x1B[1A\x1B[K{}", line));
             }
         }
         let _ = printer.print(String::new());
