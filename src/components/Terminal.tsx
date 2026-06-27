@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTerminal } from '../contexts/TerminalContext';
 import { t } from '../i18n';
-import { escapeHtml } from '../utils/format';
 
 export function Terminal() {
   const { lines } = useTerminal();

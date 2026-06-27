@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useCallback, type ReactNode } from 'react';
 import type { AppSettings, Lang, Theme } from '../types';
-import { parseColor, formatColor, darken } from '../utils/color';
+import { darken } from '../utils/color';
 import { getLang, setLang as i18nSetLang } from '../i18n';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { getBridge, isBridgeAvailable } from '../bridge';
 import {
   getSettings as getSettingsFromStore,

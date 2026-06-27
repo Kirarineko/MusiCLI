@@ -2,7 +2,6 @@ import { register } from '../registry';
 import { ctx } from './index';
 import { t } from '../../i18n';
 import { getBridge } from '../../bridge';
-import { getStoredSettings } from '../../contexts/SettingsContext';
 
 export function registerSystemCommands() {
   register('lang', ['language', 'locale'], (args) => {

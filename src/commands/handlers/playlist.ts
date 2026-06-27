@@ -136,7 +136,6 @@ export function registerPlaylistCommands() {
 
     // track pl/edit/delete/move/copy — delete/move/copy are shortcuts that normalize to pl
     if (sub === 'pl' || sub === 'edit' || sub === 'delete' || sub === 'move' || sub === 'copy') {
-      const normalizedSub = (sub === 'delete' || sub === 'move' || sub === 'copy') ? 'pl' : sub;
       const normalizedRest = (sub === 'delete' || sub === 'move' || sub === 'copy') ? [sub, ...rest] : rest;
       const subSub = (normalizedRest[0] || '').toLowerCase();
       // track pl delete

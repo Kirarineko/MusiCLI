@@ -1,5 +1,5 @@
 import type { AppSettings } from '../types';
-import { parseColor, formatColor, darken } from './color';
+import { darken } from './color';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { SHADOW_PRESETS } from '../constants/themes';
 

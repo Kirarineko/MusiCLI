@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
 import type { Playlist, PlaylistInfo } from '../types';
 import { t } from '../i18n';
 import { getPlaylists as getPlaylistsFromStore, savePlaylists as savePlaylistsToStore } from '../configStore';

@@ -1,9 +1,7 @@
-import { register } from '../registry';
 import { t } from '../../i18n';
 import { getBridge } from '../../bridge';
 import { hasError } from '../../utils/guards';
-import { escapeHtml, formatTime, getFileName } from '../../utils/format';
-import { darken } from '../../utils/color';
+import { formatTime } from '../../utils/format';
 import type { SelectCandidate, InteractiveItem, MetadataResult, Theme } from '../../types';
 
 export interface CommandContext {
