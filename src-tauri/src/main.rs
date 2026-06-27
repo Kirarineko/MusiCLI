@@ -14,6 +14,7 @@ struct Cli {
 }
 
 fn main() {
+    eprintln!("DEBUG: gui={} server={}", cfg!(feature = "gui"), cfg!(feature = "server"));
     let cli = Cli::parse();
 
     #[cfg(feature = "server")]
