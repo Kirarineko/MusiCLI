@@ -21,6 +21,7 @@ fn main() {
     let port = musicli_lib::server::http::start_in_background(state.clone(), cli.port);
     std::env::set_var("MUSICLI_HTTP_PORT", port.to_string());
 
+    #[cfg(feature = "gui")]
     if !cli.remote {
         return musicli_lib::run_gui();
     }

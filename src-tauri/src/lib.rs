@@ -1,21 +1,30 @@
+#[cfg(feature = "gui")]
 mod dialog_cmd;
+#[cfg(feature = "gui")]
 mod lyrics_cmd;
+#[cfg(feature = "gui")]
 mod window_cmd;
 pub mod audio;
 pub mod core;
+#[cfg(feature = "gui")]
 mod commands;
 pub mod lrc_parser;
 pub mod server;
 pub mod server_state;
 
+#[cfg(feature = "gui")]
 use std::sync::Mutex;
+#[cfg(feature = "gui")]
 use tauri::Manager;
+#[cfg(feature = "gui")]
 use audio::engine::AudioEngine;
 
+#[cfg(feature = "gui")]
 pub struct AppState {
     pub audio_engine: Mutex<AudioEngine>,
 }
 
+#[cfg(feature = "gui")]
 pub fn run_gui() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

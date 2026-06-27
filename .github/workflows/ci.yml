@@ -57,11 +57,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Build headless binary
-        run: cargo build --release --bin musicli
+        run: cargo build --release --bin musicli --no-default-features
         working-directory: src-tauri
       - name: Upload headless binary
         uses: actions/upload-artifact@v4

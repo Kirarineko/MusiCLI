@@ -67,9 +67,15 @@ Commands register at **module level** (not in `useEffect`) to survive Vite HMR.
 
 ## Gotchas
 
-### No `gui` feature
+### `gui` Cargo feature
 
-`tauri` and `tauri-plugin-dialog` are **non-optional** dependencies. There is no `gui` Cargo feature. Tauri is always compiled.
+`tauri` and `tauri-plugin-dialog` are **optional** dependencies behind the `gui` default feature. The headless binary is built with `--no-default-features` and has zero Tauri/WebKit/GTK linkage.
+
+| Mode | Cargo command | Features active |
+|------|-------------|-----------------|
+| GUI dev | `pnpm tauri dev` | `gui` (via `tauri.conf.json` build.features) |
+| GUI release | `pnpm tauri build` | `gui` |
+| Headless binary | `cargo build --bin musicli --no-default-features` | none |
 
 ### `server` feature is REPL-only (removed)
 
