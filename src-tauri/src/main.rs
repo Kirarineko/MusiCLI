@@ -16,32 +16,34 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
+    let state = std::sync::Arc::new(std::sync::Mutex::new(
+        musicli_lib::server_state::ServerState::new(),
+    ));
+
+    let port = musicli_lib::server::http::start_in_background(state.clone());
+    std::env::set_var("MUSICLI_HTTP_PORT", port.to_string());
+
     #[cfg(feature = "gui")]
-    if !cli.cli && !cli.server && cli.port == 0 {
+    if !cli.cli && !cli.server {
         return musicli_lib::run_gui();
     }
 
-    let port = if cli.port > 0 { cli.port } else { 3000 };
-    let state = std::sync::Mutex::new(musicli_lib::server_state::ServerState::new());
-
-    if cli.server || cli.port > 0 {
+    if cli.server {
+        println!("HTTP API: http://127.0.0.1:{}", port);
+        // Server mode: block on REPL (or keep alive)
         #[cfg(feature = "server")]
-        {
-            let rt = tokio::runtime::Runtime::new().expect("tokio");
-            let state = std::sync::Arc::new(state);
-            let s2 = state.clone();
-            rt.block_on(async move {
-                let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await.expect("bind");
-                println!("HTTP API: http://127.0.0.1:{}", port);
-                axum::serve(listener, musicli_lib::server::http::build_router(s2)).await.expect("server");
-            });
-        }
+        musicli_lib::server::repl::run_repl(state, None);
         #[cfg(not(feature = "server"))]
         { eprintln!("Server mode needs --features server"); std::process::exit(1); }
-    } else {
+    } else if cli.cli {
         #[cfg(feature = "server")]
-        musicli_lib::server::repl::run_repl(std::sync::Arc::new(state), None);
+        musicli_lib::server::repl::run_repl(state, None);
         #[cfg(not(feature = "server"))]
         { eprintln!("CLI mode needs --features server"); std::process::exit(1); }
+    } else {
+        // Block forever when no mode selected (server running in background)
+        loop {
+            std::thread::park();
+        }
     }
 }

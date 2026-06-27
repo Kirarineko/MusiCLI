@@ -5,12 +5,29 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
 use crate::audio::AudioMode;
 use crate::server_state::ServerState as SState;
 
 type SharedState = Arc<Mutex<SState>>;
+
+pub fn start_in_background(state: Arc<Mutex<SState>>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind HTTP server");
+    let port = listener.local_addr().unwrap().port();
+    let listener = tokio::net::TcpListener::from_std(listener).expect("Failed to convert listener");
+
+    let s = state.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+        rt.block_on(async {
+            axum::serve(listener, build_router(s)).await.expect("HTTP server error");
+        });
+    });
+
+    port
+}
 
 pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
     Router::new()

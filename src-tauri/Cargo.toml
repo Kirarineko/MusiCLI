@@ -7,7 +7,7 @@ edition = "2021"
 default = []
 asio = ["cpal/asio"]
 gui = ["tauri", "tauri-plugin-dialog"]
-server = ["axum", "tokio", "rustyline"]
+server = ["rustyline"]
 
 [lib]
 name = "musicli_lib"
@@ -61,7 +61,7 @@ regex = "1"
 chrono = "0.4"
 
 # Headless / server mode
-axum = { version = "0.8", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"], optional = true }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
 rustyline = { version = "15", optional = true }
 clap = { version = "4", features = ["derive"] }

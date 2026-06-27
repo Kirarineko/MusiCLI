@@ -1,9 +1,10 @@
-#[cfg(feature = "server")]
 pub mod http;
 #[cfg(feature = "server")]
 pub mod repl;
 
+#[cfg(feature = "server")]
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "server")]
 use crate::server_state::ServerState;
 
 #[cfg(feature = "server")]
