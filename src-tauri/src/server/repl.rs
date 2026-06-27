@@ -162,7 +162,6 @@ fn save_settings(s: &ServerState) {
 fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter + Send + 'static) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut last_pos = -1.0;
-        let mut prev_lines: usize = 0;
         loop {
             thread::sleep(Duration::from_millis(200));
             let s = st.lock().unwrap(); let engine = s.audio_engine.lock().unwrap();
@@ -173,7 +172,7 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             let track = s.current_index.lock().unwrap().and_then(|i| s.playlist.lock().unwrap().get(i).cloned())
                 .and_then(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
             let bar = bar_str(pos, dur, s.progress_width, s.progress_filled, s.progress_empty);
-            let tw = term_width().saturating_sub(2); // margin for leading "  "
+            let tw = term_width().saturating_sub(2);
             let status = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
             let mut output = truncate_line(&status, tw);
             let ll = s.lrc_lines.lock().unwrap();
@@ -197,24 +196,11 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             drop(ll); drop(engine); drop(s);
             if (pos - last_pos).abs() > 0.5 {
                 last_pos = pos;
-                let cur_count = output.split('\n').count();
-                if prev_lines > 0 {
-                    // Clear previous block: move up once, then \x1B[K before each line
-                    let mut cleared = format!("\x1B[{}A", prev_lines);
-                    for part in output.split('\n') {
-                        cleared.push_str("\x1B[K");
-                        cleared.push_str(part);
-                        cleared.push('\n');
-                    }
-                    cleared.pop(); // remove trailing \n (printer adds its own)
-                    output = cleared;
-                }
-                prev_lines = cur_count + 1; // +1 for printer's trailing newline
-                let _ = printer.print(output);
+                // Simple \r overwrite — no cursor movement, no line clearing.
+                // Lines may stack when lyrics toggle on, but this avoids
+                // \x1B[J erasing terminal history and cursor drift bugs.
+                let _ = printer.print(format!("\r{}", output));
             }
-        }
-        if prev_lines > 0 {
-            let _ = printer.print(format!("\x1B[{}A", prev_lines));
         }
     })
 }
