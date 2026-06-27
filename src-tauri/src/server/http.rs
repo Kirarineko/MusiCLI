@@ -13,8 +13,9 @@ use crate::server_state::ServerState as SState;
 
 type SharedState = Arc<Mutex<SState>>;
 
-pub fn start_in_background(state: Arc<Mutex<SState>>) -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind HTTP server");
+pub fn start_in_background(state: Arc<Mutex<SState>>, port: u16) -> u16 {
+    let addr = format!("127.0.0.1:{}", port);
+    let listener = TcpListener::bind(&addr).expect("Failed to bind HTTP server");
     let port = listener.local_addr().unwrap().port();
     let listener = tokio::net::TcpListener::from_std(listener).expect("Failed to convert listener");
 
