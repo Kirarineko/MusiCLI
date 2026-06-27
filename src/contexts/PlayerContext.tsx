@@ -1,6 +1,7 @@
 import { createContext, useContext, useRef, useState, useCallback, useEffect, type ReactNode } from 'react';
 import type { PlayMode, LrcLine } from '../types';
 import { getStoredSettings, SHADOW_PRESETS, useSettings } from './SettingsContext';
+import { usePlaylists } from './PlaylistContext';
 import { saveSettings as saveSettingsToStore } from '../configStore';
 import { parseLRC, getCurrentLineIdx } from '../utils/lrc';
 import { getBridge } from '../bridge';
@@ -60,6 +61,7 @@ const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const settings = useSettings();
+  const playlistsCtx = usePlaylists();
   const [playlist, setPlaylist] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -119,6 +121,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }, 600);
     }
   }, []);
+
+  // Auto-sync player playlist from PlaylistContext
+  useEffect(() => {
+    const tracks = playlistsCtx.getPlaylistTracks(playlistsCtx.currentPlName) ?? [];
+    if (tracks.length === 0) {
+      setPlaylist([]);
+      setCurrentIndex(-1);
+      return;
+    }
+    setPlaylist(prev => {
+      if (prev.length === tracks.length && prev.every((t, i) => t === tracks[i])) return prev;
+      const newTracks = tracks.filter((t: string) => !prev.includes(t));
+      if (newTracks.length > 0 && newTracks.length < tracks.length) {
+        return [...prev, ...newTracks];
+      }
+      return tracks;
+    });
+  }, [playlistsCtx.currentPlName, playlistsCtx.playlists, playlistsCtx.getPlaylistTracks]);
 
   const nextShuffleIndex = useCallback(() => {
     if (playlist.length === 0) return -1;

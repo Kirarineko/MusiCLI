@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { SettingsProvider, SHADOW_PRESETS, applyCssVars } from './contexts/SettingsContext';
-import { PlaylistProvider, usePlaylists, type PlayerSync } from './contexts/PlaylistContext';
+import { PlaylistProvider, usePlaylists } from './contexts/PlaylistContext';
 import { PlayerProvider, usePlayer } from './contexts/PlayerContext';
 import { TerminalProvider, useTerminal } from './contexts/TerminalContext';
 import { TitleBar } from './components/TitleBar';
@@ -30,14 +30,8 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
       await initBridge();
 
       // Wire contexts together.
-      const sync: PlayerSync = {
-        addToPlaylist: player.addToPlaylist,
-        clearPlaylist: player.clearPlaylist,
-        getPlaylist: player.getPlaylist,
-      };
-      playlists.registerPlayerSync(sync);
-      player.registerLyricPrinter((text, cls) => terminal.printLine(text, cls));
       playlists.ensureDefault();
+      player.registerLyricPrinter((text, cls) => terminal.printLine(text, cls));
 
       // Auto-detect music folder BEFORE loading config files.
       // Must await completion so initConfig() sees the folder path.
@@ -65,18 +59,6 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
 
       // Refresh playlists from file-loaded config.
       playlists.reloadFromStore();
-      const reloadedPl = playlists.getCurrentPlaylist();
-      if (reloadedPl && reloadedPl.tracks && reloadedPl.tracks.length > 0) {
-        player.clearPlaylist();
-        player.addToPlaylist(reloadedPl.tracks);
-      } else {
-        // Fall back to in-memory cache (populated from localStorage at module load).
-        const pl = playlists.getCurrentPlaylist();
-        if (pl && pl.tracks && pl.tracks.length > 0) {
-          player.clearPlaylist();
-          player.addToPlaylist(pl.tracks);
-        }
-      }
 
       // Restore settings from the updated cache.
       const s2 = getStoredSettings();

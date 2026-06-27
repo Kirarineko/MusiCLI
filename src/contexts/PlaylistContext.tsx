@@ -1,27 +1,17 @@
-import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import type { Playlist, PlaylistInfo } from '../types';
 import { t } from '../i18n';
 import { getPlaylists as getPlaylistsFromStore, savePlaylists as savePlaylistsToStore } from '../configStore';
 
-// Callbacks that PlaylistContext needs from PlayerContext
-export interface PlayerSync {
-  addToPlaylist: (paths: string[]) => void;
-  clearPlaylist: () => void;
-  getPlaylist: () => string[];
-}
-
 interface PlaylistContextValue {
   playlists: Record<string, Playlist>;
   currentPlName: string;
-  /** Register player functions so we can sync playlist -> player */
-  registerPlayerSync: (sync: PlayerSync) => void;
+  getPlaylistTracks: (name: string) => string[] | null;
   createPlaylist: (name: string, desc?: string, sharer?: string) => { success: boolean; error?: string };
   createPlaylistWithTracks: (name: string, desc: string | undefined, sharer: string | undefined, tracks: string[]) => boolean;
   deletePlaylist: (name: string) => { success: boolean; error?: string };
   switchPlaylist: (name: string) => Playlist | { candidates: string[] } | null;
-  /** Add tracks to current playlist AND sync to player */
   addTracksToCurrent: (tracks: string[]) => void;
-  /** Replace all tracks in current playlist AND sync to player */
   replaceCurrentTracks: (tracks: string[]) => void;
   editPlaylist: (name: string, field: string, value: string) => { success: boolean; error?: string };
   getCurrentPlaylist: () => Playlist | null;
@@ -62,17 +52,17 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
   // Load synchronously so data is ready before any child useEffect runs
   const [playlists, setPlaylists] = useState<Record<string, Playlist>>(() => loadPlaylistsFromStorage().pls);
   const [currentPlName, setCurrentPlName] = useState(() => loadPlaylistsFromStorage().cur);
-  const playerSyncRef = useRef<PlayerSync | null>(null);
-
-  const registerPlayerSync = useCallback((sync: PlayerSync) => {
-    playerSyncRef.current = sync;
-  }, []);
 
   const persist = useCallback((pls: Record<string, Playlist>, cur: string) => {
     setPlaylists({ ...pls });
     setCurrentPlName(cur);
     savePlaylistsToStore(pls, cur);
   }, []);
+
+  const getPlaylistTracks = useCallback((name: string): string[] | null => {
+    const pl = playlists[name];
+    return pl ? pl.tracks : null;
+  }, [playlists]);
 
   /** Re-read playlists from configStore (e.g. after initConfig loaded files) */
   const reloadFromStore = useCallback(() => {
@@ -118,11 +108,6 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     const now = new Date().toISOString();
     pls[name] = { name, desc: desc || '', createdAt: now, updatedAt: now, tracks, sharer: sharer || undefined };
     persist(pls, name);
-    // Sync to player
-    if (playerSyncRef.current) {
-      playerSyncRef.current.clearPlaylist();
-      playerSyncRef.current.addToPlaylist(tracks);
-    }
     return true;
   }, [playlists, persist]);
 
@@ -133,14 +118,6 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     delete pls[name];
     let cur = currentPlName;
     if (cur === name) cur = Object.keys(pls)[0];
-    // Sync player when switching away
-    if (playerSyncRef.current) {
-      playerSyncRef.current.clearPlaylist();
-      const newPl = pls[cur];
-      if (newPl && newPl.tracks) {
-        playerSyncRef.current.addToPlaylist(newPl.tracks);
-      }
-    }
     persist(pls, cur);
     return { success: true };
   }, [playlists, currentPlName, persist]);
@@ -149,11 +126,6 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     const pls = { ...playlists };
     if (pls[name]) {
       persist(pls, name);
-      // Sync to player: clear current, load new
-      if (playerSyncRef.current) {
-        playerSyncRef.current.clearPlaylist();
-        playerSyncRef.current.addToPlaylist(pls[name].tracks);
-      }
       return pls[name];
     }
     const lower = name.toLowerCase();
@@ -161,10 +133,6 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     if (matches.length === 0) return null;
     if (matches.length === 1) {
       persist(pls, matches[0]);
-      if (playerSyncRef.current) {
-        playerSyncRef.current.clearPlaylist();
-        playerSyncRef.current.addToPlaylist(pls[matches[0]].tracks);
-      }
       return pls[matches[0]];
     }
     return { candidates: matches };
@@ -174,14 +142,8 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     const pls = { ...playlists };
     const pl = pls[currentPlName];
     if (!pl) return;
-    const sync = playerSyncRef.current;
     for (const t of tracks) {
       if (!pl.tracks.includes(t)) pl.tracks.push(t);
-      // Also add to player's live playlist
-      if (sync) {
-        const playerPl = sync.getPlaylist();
-        if (!playerPl.includes(t)) sync.addToPlaylist([t]);
-      }
     }
     persist(pls, currentPlName);
   }, [playlists, currentPlName, persist]);
@@ -192,11 +154,6 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     if (!pl) return;
     pl.tracks = [...tracks];
     persist(pls, currentPlName);
-    // Completely reset player playlist to match
-    if (playerSyncRef.current) {
-      playerSyncRef.current.clearPlaylist();
-      playerSyncRef.current.addToPlaylist(tracks);
-    }
   }, [playlists, currentPlName, persist]);
 
   const editPlaylist = useCallback((name: string, field: string, value: string) => {
@@ -259,7 +216,7 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
   return (
     <PlaylistContext.Provider value={{
       playlists, currentPlName,
-      registerPlayerSync,
+      getPlaylistTracks,
       createPlaylist, createPlaylistWithTracks, deletePlaylist, switchPlaylist,
       addTracksToCurrent, replaceCurrentTracks,
       editPlaylist, getCurrentPlaylist, getCurrentPlName,
