@@ -9,70 +9,13 @@ import {
   getThemes as getThemesFromStore,
   saveSettings as saveSettingsToStore,
   saveThemes as saveThemesToStore,
+  DEFAULT_SETTINGS,
+  BUILTIN_THEMES,
 } from '../configStore';
+import { applyCssVars, toCssShadow } from '../utils/css';
+import { SHADOW_PRESETS } from '../constants/themes';
 
-export const SHADOW_PRESETS: Record<string, string> = {
-  large: '0 0 8px rgba(0,0,0,0.4),0 4px 3px rgba(0,0,0,0.7)',
-  medium: '0 0 6px rgba(0,0,0,0.5),0 2px 1px rgba(0,0,0,0.5)',
-  small: '0 0 4px rgba(0,0,0,0.7)',
-};
-
-function toCssShadow(preset: string): string {
-  return SHADOW_PRESETS[preset] || 'none';
-}
-
-const defaults: AppSettings = {
-  bg: '#0c0c0c',
-  'bg-darker': '#0a0a0a',
-  fg: '#f2f2f2',
-  'fg-dim': '#cccccc',
-  'fg-bright': '#b1b9f9',
-  accent: '#888888',
-  lyric: '#888888',
-  line: '#686868',
-  'bg-img': '',
-  'bg-img-data': '',
-  'bg-blur': 0,
-  volume: 80,
-  musicFolder: '',
-  fontSize: 14,
-  fontWeight: 400,
-  customFont: '',
-  customFontData: '',
-  lyricsTerminal: false,
-  lyricsFloating: false,
-  lyricsFg: '#cccccc',
-  lyricsAccent: '#b1b9f9',
-  lyricsNextCount: 1,
-  lyricsGap: 10,
-  lyricsShadow: 'medium',
-  lyricsAlign: 'center',
-  lyricsLocked: false,
-  lyricsCurrentSize: 24,
-  lyricsNextSize: 14,
-  lyricsVertical: 'off',
-  progressFilled: '=',
-  progressEmpty: ' ',
-  progressWidth: 20,
-  seekStep: 5,
-  seekPause: false,
-  maxLines: 500,
-};
-
-const BUILTIN_THEMES: Theme[] = [
-  {
-    name: 'dark', bg: '#0c0c0c', fg: '#f2f2f2', 'fg-dim': '#cccccc',
-    'fg-bright': '#b1b9f9', accent: '#888888', lyric: '#888888', line: '#686868',
-    'bg-img-data': '', 'bg-blur': 0, fontSize: 14, fontWeight: 400,
-    customFont: '', customFontData: '',
-  },
-  {
-    name: 'Claude Desktop', bg: '#FAF9F5', fg: '#141413', 'fg-dim': '#5E5D59',
-    'fg-bright': '#D97757', accent: '#d4a853', lyric: '#5E5D59', line: '#2d2a25',
-    'bg-img-data': '', 'bg-blur': 0, fontSize: 14, fontWeight: 400,
-    customFont: '', customFontData: '',
-  },
-];
+export { applyCssVars, SHADOW_PRESETS };
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -102,61 +45,10 @@ function loadThemeData(): Theme[] {
   return t;
 }
 
-export function applyCssVars(s: AppSettings) {
-  const root = document.documentElement;
-  root.style.setProperty('--bg', s.bg);
-  root.style.setProperty('--bg-darker', s['bg-darker'] || darken(s.bg, 0.85));
-  root.style.setProperty('--fg', s.fg);
-  root.style.setProperty('--fg-dim', s['fg-dim']);
-  root.style.setProperty('--fg-bright', s['fg-bright']);
-  root.style.setProperty('--accent', s.accent);
-  root.style.setProperty('--line', s.line);
-  root.style.setProperty('--lyric', s.lyric);
-
-  if (s['bg-img']) {
-    const imgPath = s['bg-img'].replace(/\\/g, '/');
-    // Tauri v2: use convertFileSrc for proper asset protocol URL
-    const imgUrl = (window as any).__TAURI_INTERNALS__
-      ? convertFileSrc(imgPath)
-      : `file:///${imgPath}`;
-    root.style.setProperty('--bg-img', `url(${imgUrl})`);
-  } else if (s['bg-img-data']) {
-    const ext = s['bg-img-data'].startsWith('/9j/') ? 'jpg' :
-                s['bg-img-data'].startsWith('iVBOR') ? 'png' :
-                s['bg-img-data'].startsWith('R0lG') ? 'gif' :
-                s['bg-img-data'].startsWith('UklGR') ? 'webp' : 'jpg';
-    root.style.setProperty('--bg-img', `url(data:image/${ext};base64,${s['bg-img-data']})`);
-  } else {
-    root.style.setProperty('--bg-img', 'none');
-  }
-  root.style.setProperty('--bg-blur', `${s['bg-blur'] || 0}px`);
-  root.style.setProperty('--font-size', `${s.fontSize || 14}px`);
-  root.style.setProperty('--font-weight', String(s.fontWeight || 400));
-
-  const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
-  if (s.customFont && s.customFontData) {
-    let styleEl = document.getElementById('custom-font-style') as HTMLStyleElement | null;
-    if (!styleEl) {
-      styleEl = document.createElement('style');
-      styleEl.id = 'custom-font-style';
-      document.head.appendChild(styleEl);
-    }
-    const ext = s.customFontData.startsWith('data:font/woff2') ? 'woff2' :
-                s.customFontData.startsWith('data:font/woff') ? 'woff' :
-                s.customFontData.startsWith('data:font/otf') ? 'otf' : 'truetype';
-    styleEl.textContent = `@font-face { font-family: '${s.customFont}'; src: url(${s.customFontData}) format('${ext}'); }`;
-    root.style.setProperty('--font', `"${s.customFont}", ${baseFonts}`);
-  } else {
-    const styleEl = document.getElementById('custom-font-style');
-    if (styleEl) styleEl.remove();
-    root.style.setProperty('--font', baseFonts);
-  }
-}
-
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const saveSettings = useCallback((partial: Partial<AppSettings>) => {
     const current = getSettingsFromStore();
-    const merged = { ...defaults, ...current, ...partial };
+    const merged = { ...DEFAULT_SETTINGS, ...current, ...partial };
     if (partial.bg && !partial['bg-darker']) {
       merged['bg-darker'] = darken(partial.bg, 0.85);
     }
@@ -187,15 +79,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getCurrentSettings = useCallback((): AppSettings => {
-    const result = { ...defaults };
+    const result = { ...DEFAULT_SETTINGS };
     const stored = getSettingsFromStore();
     Object.assign(result, stored);
     return result;
   }, []);
 
   const resetSettings = useCallback(() => {
-    applyCssVars(defaults);
-    saveSettingsToStore({ ...defaults });
+    applyCssVars(DEFAULT_SETTINGS);
+    saveSettingsToStore({ ...DEFAULT_SETTINGS });
   }, []);
 
   // Theme methods
@@ -297,7 +189,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   // Initialize on mount — apply settings from in-memory cache (already loaded from localStorage)
   useEffect(() => {
     const stored = getSettingsFromStore();
-    const merged = { ...defaults, ...stored };
+    const merged = { ...DEFAULT_SETTINGS, ...stored };
     if (merged['bg-img']) merged['bg-img'] = merged['bg-img'].replace(/\\/g, '/');
     applyCssVars(merged);
   }, []);
@@ -337,7 +229,7 @@ export function useSettings() {
 
 // Module-level helper for non-React code (synchronous)
 export function getStoredSettings(): AppSettings {
-  const result = { ...defaults };
+  const result = { ...DEFAULT_SETTINGS };
   const stored = getSettingsFromStore();
   Object.assign(result, stored);
   return result;

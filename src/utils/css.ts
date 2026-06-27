@@ -1,6 +1,7 @@
 import type { AppSettings } from '../types';
 import { parseColor, formatColor, darken } from './color';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { SHADOW_PRESETS } from '../constants/themes';
 
 export function applyCssVars(s: AppSettings) {
   const root = document.documentElement;
@@ -53,10 +54,5 @@ export function applyCssVars(s: AppSettings) {
 }
 
 export function toCssShadow(preset: string): string {
-  const SHADOW_PRESETS: Record<string, string> = {
-    large: '0 0 8px rgba(0,0,0,0.4),0 4px 3px rgba(0,0,0,0.7)',
-    medium: '0 0 6px rgba(0,0,0,0.5),0 2px 1px rgba(0,0,0,0.5)',
-    small: '0 0 4px rgba(0,0,0,0.7)',
-  };
   return SHADOW_PRESETS[preset] || 'none';
 }

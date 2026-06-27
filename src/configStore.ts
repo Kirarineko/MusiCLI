@@ -56,7 +56,7 @@ type ConfigKey = 'settings' | 'themes' | 'playlists' | 'lang';
 
 // ── defaults ─────────────────────────────────────────────────────────
 
-const DEFAULT_SETTINGS: AppSettings = {
+export const DEFAULT_SETTINGS: AppSettings = {
   bg: '#0c0c0c',
   'bg-darker': '#0a0a0a',
   fg: '#f2f2f2',
@@ -94,7 +94,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   maxLines: 500,
 };
 
-const BUILTIN_THEMES: Theme[] = [
+export const BUILTIN_THEMES: Theme[] = [
   {
     name: 'dark', bg: '#0c0c0c', fg: '#f2f2f2', 'fg-dim': '#cccccc',
     'fg-bright': '#b1b9f9', accent: '#888888', lyric: '#888888', line: '#686868',
