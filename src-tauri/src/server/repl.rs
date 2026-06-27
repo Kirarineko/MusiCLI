@@ -114,11 +114,28 @@ fn load_lyrics(s: &ServerState, mp3_path: &str) {
     }
 }
 
+// ── Config persistence ─────────────────────────────────────────────
+
+fn save_settings(s: &ServerState) {
+    let mf = s.music_folder.lock().unwrap().clone();
+    if mf.is_empty() { return; }
+    let mut obj = serde_json::Map::new();
+    obj.insert("volume".into(), serde_json::json!(s.audio_engine.lock().unwrap().get_volume()));
+    obj.insert("progressWidth".into(), serde_json::json!(s.progress_width));
+    obj.insert("progressFilled".into(), serde_json::json!(s.progress_filled.to_string()));
+    obj.insert("progressEmpty".into(), serde_json::json!(s.progress_empty.to_string()));
+    obj.insert("lyricsTerminal".into(), serde_json::json!(*s.lrc_enabled.lock().unwrap()));
+    obj.insert("lyricsNextCount".into(), serde_json::json!(*s.lrc_next_count.lock().unwrap()));
+    obj.insert("playMode".into(), serde_json::json!(s.play_mode.lock().unwrap().clone()));
+    let _ = crate::core::files::write_config(&mf, "settings", &serde_json::Value::Object(obj));
+}
+
 // ── Status thread (uses rustyline ExternalPrinter) ──
 
 fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter + Send + 'static) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut last_pos = -1.0;
+        let mut prev_lines: usize = 0;
         loop {
             thread::sleep(Duration::from_millis(200));
             let s = st.lock().unwrap(); let engine = s.audio_engine.lock().unwrap();
@@ -129,21 +146,38 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             let track = s.current_index.lock().unwrap().and_then(|i| s.playlist.lock().unwrap().get(i).cloned())
                 .and_then(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
             let bar = bar_str(pos, dur, s.progress_width, s.progress_filled, s.progress_empty);
-            let mut line = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
+            let mut lines = 1usize;
+            let mut output = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
             let ll = s.lrc_lines.lock().unwrap();
             if *s.lrc_enabled.lock().unwrap() && !ll.is_empty() {
                 let ci = crate::lrc_parser::get_current_line_idx(&ll, pos);
                 if ci >= 0 {
-                    line.push_str(&format!("  |  \x1B[33m♪\x1B[0m {}", ll[ci as usize].text));
+                    output.push_str(&format!("\n  \x1B[33m♪\x1B[0m {}", ll[ci as usize].text));
+                    lines += 1;
+                    let nc = *s.lrc_next_count.lock().unwrap();
+                    for i in 1..=nc.min(ll.len().saturating_sub(ci as usize + 1)) {
+                        let idx = ci as usize + i;
+                        if idx < ll.len() {
+                            output.push_str(&format!("\n    {}", ll[idx].text));
+                            lines += 1;
+                        }
+                    }
                 }
             }
             drop(ll); drop(engine); drop(s);
             if (pos - last_pos).abs() > 0.5 {
                 last_pos = pos;
-                let _ = printer.print(format!("\x1B[1A\x1B[K{}", line));
+                // Move up past previous output block, clear downward, print new block
+                if prev_lines > 0 {
+                    output = format!("\x1B[{}A\x1B[J{}", prev_lines, output);
+                }
+                prev_lines = lines;
+                let _ = printer.print(output);
             }
         }
-        let _ = printer.print(String::new());
+        if prev_lines > 0 {
+            let _ = printer.print(format!("\x1B[{}A\x1B[J", prev_lines));
+        }
     })
 }
 
@@ -254,7 +288,7 @@ fn play_track(state: &Arc<Mutex<ServerState>>, path: &str, idx: usize) {
 fn nxt(state: &Arc<Mutex<ServerState>>) { let s=state.lock().unwrap(); let pl=s.playlist.lock().unwrap().clone(); if pl.is_empty(){println!("No tracks.");return;} let cur=s.current_index.lock().unwrap().unwrap_or(0); let idx=if cur+1<pl.len(){cur+1}else{0}; let path=pl[idx].clone(); drop(s); play_track(state, &path, idx); }
 fn prv(state: &Arc<Mutex<ServerState>>) { let s=state.lock().unwrap(); let pl=s.playlist.lock().unwrap().clone(); if pl.is_empty(){println!("No tracks.");return;} let cur=s.current_index.lock().unwrap().unwrap_or(0); let idx=if cur>0{cur-1}else{pl.len().saturating_sub(1)}; let path=pl[idx].clone(); drop(s); play_track(state, &path, idx); }
 fn seek(state: &Arc<Mutex<ServerState>>, args: &[&str]) { if let Some(a)=args.first().and_then(|a|a.parse::<f64>().ok()){state.lock().unwrap().audio_engine.lock().unwrap().seek(a);println!("Seek: {}",format_time(a));}else{println!("seek <seconds>");} }
-fn vol(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); if let Some(v)=args.first().and_then(|a|a.parse::<u32>().ok()){s.audio_engine.lock().unwrap().set_volume(v.min(100));println!("Vol: {}",v.min(100));}else{println!("Vol: {}",s.audio_engine.lock().unwrap().get_volume());} }
+fn vol(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); if let Some(v)=args.first().and_then(|a|a.parse::<u32>().ok()){s.audio_engine.lock().unwrap().set_volume(v.min(100));println!("Vol: {}",v.min(100)); save_settings(&s); }else{println!("Vol: {}",s.audio_engine.lock().unwrap().get_volume());} }
 
 fn list(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let pl=s.playlist.lock().unwrap(); if pl.is_empty(){println!("Playlist empty.");return;} let page=args.first().and_then(|a|a.parse::<usize>().ok()).unwrap_or(1).max(1); let ps=20; let start=(page-1)*ps; let end=(start+ps).min(pl.len()); println!("Tracks {}-{} / {}  (page {})",start+1,end,pl.len(),page); let cur=*s.current_index.lock().unwrap(); for i in start..end { let n=std::path::Path::new(&pl[i]).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default(); println!("{} {}. {}",if Some(i)==cur{"▶"}else{" "},i+1,n); } }
 
@@ -268,11 +302,11 @@ fn devices() { use cpal::traits::{DeviceTrait,HostTrait}; if let Ok(h)=cpal::def
 
 fn info(state: &Arc<Mutex<ServerState>>) { let s=state.lock().unwrap(); let idx=s.current_index.lock().unwrap().unwrap_or(0); let path=s.playlist.lock().unwrap().get(idx).cloned(); drop(s); if let Some(p)=path { match crate::core::metadata::read_metadata(&p){ Ok(m)=>{ println!("\n  {}",m.title);println!("  Artist: {}",m.artist);println!("  Album:  {}",m.album);if let Some(y)=m.year{println!("  Year:   {}",y);}if let Some(g)=&m.genre{println!("  Genre:  {}",g);}if m.duration.unwrap_or(0.0)>0.0{println!("  Length: {}",format_time(m.duration.unwrap_or(0.0)));}} Err(e)=>println!("Error: {}",e),} } else { println!("No track."); } }
 
-fn bar(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let mut s=state.lock().unwrap(); if args.is_empty(){let e=s.audio_engine.lock().unwrap();let b=bar_str(e.get_position(),e.get_duration(),s.progress_width,s.progress_filled,s.progress_empty);println!("\n  {}  [{}/{}]",b,format_time(e.get_position()),format_time(e.get_duration()));return;} match args[0]{"width"=>{if let Some(w)=args.get(1).and_then(|a|a.parse::<u32>().ok()){s.progress_width=w.clamp(10,80);}println!("Width: {}",s.progress_width);}"char"|"chars"=>{if args.len()>=3{if let Some(c)=args[1].chars().next(){s.progress_filled=c;}if let Some(c)=args[2].chars().next(){s.progress_empty=c;}}println!("Chars: f='{}' e='{}'",s.progress_filled,s.progress_empty);}_=>println!("bar [width <n>|char <f> <e>]"),} }
+fn bar(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let mut s=state.lock().unwrap(); if args.is_empty(){let e=s.audio_engine.lock().unwrap();let b=bar_str(e.get_position(),e.get_duration(),s.progress_width,s.progress_filled,s.progress_empty);println!("\n  {}  [{}/{}]",b,format_time(e.get_position()),format_time(e.get_duration()));return;} match args[0]{"width"=>{if let Some(w)=args.get(1).and_then(|a|a.parse::<u32>().ok()){s.progress_width=w.clamp(10,80);} println!("Width: {}",s.progress_width); save_settings(&s); }"char"|"chars"=>{if args.len()>=3{if let Some(c)=args[1].chars().next(){s.progress_filled=c;}if let Some(c)=args[2].chars().next(){s.progress_empty=c;}} println!("Chars: f='{}' e='{}'",s.progress_filled,s.progress_empty); save_settings(&s); }_=>println!("bar [width <n>|char <f> <e>]"),} }
 
-fn lyric(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); if args.is_empty(){println!("Lyrics: {}",if *s.lrc_enabled.lock().unwrap(){"on"}else{"off"});return;} match args[0]{"t"|"on"|"terminal"=>{*s.lrc_enabled.lock().unwrap()=true;*s.lrc_last_idx.lock().unwrap()=-1;println!("Terminal lyrics on.");}"f"|"off"=>{*s.lrc_enabled.lock().unwrap()=false;println!("Off.");}"next"=>{if let Some(n)=args.get(1).and_then(|a|a.parse::<usize>().ok()){*s.lrc_next_count.lock().unwrap()=n.min(10);}println!("Next: {}",*s.lrc_next_count.lock().unwrap());}_=>println!("lyric [t|f|next <n>]"),} }
+fn lyric(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); if args.is_empty(){println!("Lyrics: {}",if *s.lrc_enabled.lock().unwrap(){"on"}else{"off"});return;} match args[0]{"t"|"on"|"terminal"=>{*s.lrc_enabled.lock().unwrap()=true;*s.lrc_last_idx.lock().unwrap()=-1;println!("Terminal lyrics on."); save_settings(&s); }"f"|"off"=>{*s.lrc_enabled.lock().unwrap()=false;println!("Off."); save_settings(&s); }"next"=>{if let Some(n)=args.get(1).and_then(|a|a.parse::<usize>().ok()){*s.lrc_next_count.lock().unwrap()=n.min(10);} println!("Next: {}",*s.lrc_next_count.lock().unwrap()); save_settings(&s); }_=>println!("lyric [t|f|next <n>]"),} }
 
-fn mode(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let modes=["normal","repeat-one","repeat-all","shuffle"]; let names=["Normal","Repeat-One","Repeat-All","Shuffle"]; let mut pm=s.play_mode.lock().unwrap(); if let Some(a)=args.first(){let al=a.to_lowercase();if let Some(i)=modes.iter().position(|m|*m==al){*pm=modes[i].to_string();}else if let Some(i)=names.iter().position(|m|m.to_lowercase().starts_with(&al)){*pm=modes[i].to_string();}else{println!("Unknown. Use normal/repeat-one/repeat-all/shuffle");return;}}else{let i=(modes.iter().position(|m|*m==*pm).unwrap_or(0)+1)%4;*pm=modes[i].to_string();}println!("Mode: {}",names[modes.iter().position(|m|*m==*pm).unwrap_or(0)]);}
+fn mode(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let modes=["normal","repeat-one","repeat-all","shuffle"]; let names=["Normal","Repeat-One","Repeat-All","Shuffle"]; let mut pm=s.play_mode.lock().unwrap(); if let Some(a)=args.first(){let al=a.to_lowercase();if let Some(i)=modes.iter().position(|m|*m==al){*pm=modes[i].to_string();}else if let Some(i)=names.iter().position(|m|m.to_lowercase().starts_with(&al)){*pm=modes[i].to_string();}else{println!("Unknown. Use normal/repeat-one/repeat-all/shuffle");return;}}else{let i=(modes.iter().position(|m|*m==*pm).unwrap_or(0)+1)%4;*pm=modes[i].to_string();} println!("Mode: {}",names[modes.iter().position(|m|*m==*pm).unwrap_or(0)]); save_settings(&s); }
 
 fn pl(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let sub=args.first().copied().unwrap_or(""); let rest=args.get(1..).unwrap_or(&[]); let mf=s.music_folder.lock().unwrap().clone();
 match sub { "create"|"new"=>{ let name=rest.first().copied().unwrap_or("");if name.is_empty(){println!("pl create <name> [desc]");return;} let desc=rest.get(1).copied().unwrap_or(""); drop(s); match crate::core::playlist::create_playlist(&mf, name, if desc.is_empty() { None } else { Some(desc) }, &[]) { Ok(())=>{} Err(e)=>if e=="duplicate"{println!("'{}' exists.",name);return;}else{println!("Error: {}",e);return;} } let s=state.lock().unwrap();refresh_playlists_cache(&s);println!("Created '{}'.",name); }
