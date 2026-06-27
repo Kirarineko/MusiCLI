@@ -52,3 +52,21 @@ pub fn copy_file(src: &str, dest: &str) -> Result<(), String> {
 pub fn mkdir(path: &str) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|e| e.to_string())
 }
+
+pub fn read_config(music_folder: &str, key: &str) -> Result<Option<serde_json::Value>, String> {
+    let path = config_path(music_folder).join(format!("{}.json", key));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let val: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(Some(val))
+}
+
+pub fn write_config(music_folder: &str, key: &str, data: &serde_json::Value) -> Result<(), String> {
+    let dir = config_path(music_folder);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{}.json", key));
+    let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}

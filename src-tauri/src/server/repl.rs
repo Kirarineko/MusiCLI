@@ -41,7 +41,7 @@ fn parse_range(input: &str, max: usize) -> Vec<usize> {
 
 fn load_config(s: &mut ServerState) {
     let mf = s.music_folder.lock().unwrap().clone(); if mf.is_empty() { return; }
-    if let Ok(Some(v)) = crate::config_cmd::read_config_sync(&mf, "settings") {
+    if let Ok(Some(v)) = crate::core::files::read_config(&mf, "settings") {
         if let Some(o) = v.as_object() {
             if let Some(x) = o.get("volume").and_then(|v| v.as_u64()) { s.audio_engine.lock().unwrap().set_volume(x as u32); }
             if let Some(x) = o.get("progressWidth").and_then(|v| v.as_u64()) { s.progress_width = x as u32; }

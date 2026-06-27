@@ -281,8 +281,8 @@ struct MetadataQuery {
 
 async fn metadata(
     Query(q): Query<MetadataQuery>,
-) -> Result<Json<crate::metadata_cmd::MetadataResult>, (StatusCode, String)> {
-    crate::metadata_cmd::read_metadata_sync(&q.path)
+) -> Result<Json<crate::core::metadata::MetadataResult>, (StatusCode, String)> {
+    crate::core::metadata::read_metadata(&q.path)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -295,7 +295,7 @@ struct FilesQuery {
 async fn list_files(
     Query(q): Query<FilesQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
-    crate::fs_cmd::list_audio_files_sync(&q.dir)
+    crate::core::files::list_audio_files(&q.dir)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -343,7 +343,7 @@ async fn get_config(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let s = state.lock().unwrap();
     let mf = s.music_folder.lock().unwrap().clone();
-    crate::config_cmd::read_config_sync(&mf, &q.key)
+    crate::core::files::read_config(&mf, &q.key)
         .map(|v| Json(v.unwrap_or(serde_json::Value::Null)))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -355,7 +355,7 @@ async fn put_config(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let s = state.lock().unwrap();
     let mf = s.music_folder.lock().unwrap().clone();
-    crate::config_cmd::write_config_sync(&mf, &q.key, &data)
+    crate::core::files::write_config(&mf, &q.key, &data)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(StatusCode::OK)
 }
