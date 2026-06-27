@@ -59,4 +59,33 @@ export function registerSystemCommands() {
       c.printLine('Usage: audio mode [normal|asio] | audio devices', 'info');
     }
   }, 'helpAudio');
+
+  register('server', ['srv'], async (args) => {
+    const c = ctx();
+    const sub = (args[0] || '').toLowerCase();
+    if (sub === 'start') {
+      try {
+        await import('@tauri-apps/api/core').then(({ invoke }) =>
+          invoke<string>('server_start')
+        ).then(result => c.printLine(result, 'success'))
+        .catch((err: unknown) => c.printLine(String(err), 'error'));
+      } catch (err) { c.printLine(String(err), 'error'); }
+    } else if (sub === 'stop') {
+      try {
+        await import('@tauri-apps/api/core').then(({ invoke }) =>
+          invoke<string>('server_stop')
+        ).then(result => c.printLine(result, 'info'))
+        .catch((err: unknown) => c.printLine(String(err), 'error'));
+      } catch (err) { c.printLine(String(err), 'error'); }
+    } else if (sub === 'status') {
+      try {
+        await import('@tauri-apps/api/core').then(({ invoke }) =>
+          invoke<string>('server_status')
+        ).then(result => c.printLine(result, 'info'))
+        .catch((err: unknown) => c.printLine(String(err), 'error'));
+      } catch (err) { c.printLine(String(err), 'error'); }
+    } else {
+      c.printLine('Usage: server start | server stop | server status', 'info');
+    }
+  }, 'helpServer');
 }

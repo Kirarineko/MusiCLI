@@ -75,6 +75,9 @@ pub fn run_gui() {
             commands::write_lrc_offset,
             commands::create_zip,
             commands::extract_zip,
+            commands::server_start,
+            commands::server_stop,
+            commands::server_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
