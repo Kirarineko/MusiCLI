@@ -19,16 +19,16 @@ fn term_width() -> usize {
     std::env::var("COLUMNS").ok().and_then(|s| s.parse().ok()).unwrap_or(80)
 }
 
-fn display_width(s: &str) -> usize {
-    s.chars().map(|c| if (c as u32) > 0x7F { 2 } else { 1 }).sum()
-}
-
-fn visual_lines(s: &str) -> usize {
-    let tw = term_width();
-    s.split('\n').map(|seg| {
-        let w = display_width(seg);
-        if w == 0 { 1 } else { (w + tw - 1) / tw }
-    }).sum::<usize>().max(1)
+fn truncate_line(s: &str, max_w: usize) -> String {
+    let mut w = 0;
+    let mut result = String::new();
+    for c in s.chars() {
+        let cw = if (c as u32) > 0x7F { 2 } else { 1 };
+        if w + cw > max_w { break; }
+        result.push(c);
+        w += cw;
+    }
+    result
 }
 
 fn bar_str(pos: f64, dur: f64, w: u32, fill: char, empty: char) -> String {
@@ -162,17 +162,26 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             let track = s.current_index.lock().unwrap().and_then(|i| s.playlist.lock().unwrap().get(i).cloned())
                 .and_then(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
             let bar = bar_str(pos, dur, s.progress_width, s.progress_filled, s.progress_empty);
-            let mut output = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
+            let mut lines: usize = 1;
+            let tw = term_width().saturating_sub(2); // margin for leading "  "
+            let status = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
+            let mut output = truncate_line(&status, tw);
             let ll = s.lrc_lines.lock().unwrap();
             if *s.lrc_enabled.lock().unwrap() && !ll.is_empty() {
                 let ci = crate::lrc_parser::get_current_line_idx(&ll, pos);
                 if ci >= 0 {
-                    output.push_str(&format!("\n  \x1B[33m♪\x1B[0m {}", ll[ci as usize].text));
+                    output.push('\n');
+                    output.push_str("  ");
+                    output.push_str(&truncate_line(&format!("\x1B[33m♪\x1B[0m {}", ll[ci as usize].text), tw.saturating_sub(2)));
+                    lines += 1;
                     let nc = *s.lrc_next_count.lock().unwrap();
                     for i in 1..=nc.min(ll.len().saturating_sub(ci as usize + 1)) {
                         let idx = ci as usize + i;
                         if idx < ll.len() {
-                            output.push_str(&format!("\n    {}", ll[idx].text));
+                            output.push('\n');
+                            output.push_str("    ");
+                            output.push_str(&truncate_line(&ll[idx].text, tw.saturating_sub(4)));
+                            lines += 1;
                         }
                     }
                 }
@@ -180,16 +189,20 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             drop(ll); drop(engine); drop(s);
             if (pos - last_pos).abs() > 0.5 {
                 last_pos = pos;
-                let cur_lines = visual_lines(&output) + 1; // +1 for printer's trailing newline
                 if prev_lines > 0 {
-                    output = format!("\x1B[{}A\x1B[J{}", prev_lines, output);
+                    // Clear previous block line by line (no \x1B[J that would erase terminal history)
+                    for i in (0..prev_lines).rev() {
+                        output = format!("\x1B[{}A\x1B[K{}", i + 1, output);
+                    }
                 }
-                prev_lines = cur_lines;
+                prev_lines = lines;
                 let _ = printer.print(output);
             }
         }
         if prev_lines > 0 {
-            let _ = printer.print(format!("\x1B[{}A\x1B[J", prev_lines));
+            for i in (0..prev_lines).rev() {
+                let _ = printer.print(format!("\x1B[{}A\x1B[K", i + 1));
+            }
         }
     })
 }
