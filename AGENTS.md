@@ -113,3 +113,11 @@ The app binds to a random port via `TcpListener::bind("127.0.0.1:0")` to discove
 - Frontend unit tests: `vitest` (config auto-detected). Test files in `src/utils/__tests__/`.
 - Rust tests: `cargo test`. Core module tests verify playlist CRUD, metadata reading, LRC parsing, etc.
 - Manual smoke test after changes: play, pause, seek, volume, playlist switch, import/export, theme, lyrics, server status.
+
+## Maintenance
+
+- **API.md** — If you add or change HTTP endpoints, update the API doc.
+- **README.md** — If you add/remove/rename commands, update the command table (both Chinese and English sections).
+- **AGENTS.md** — If you discover a new gotcha, add it here.
+- **translations.ts** — If you add a command with a `helpKey`, ensure the key exists in all three language objects.
+- **completions.ts** — If you add new subcommands, add them to the tab-completion list.
