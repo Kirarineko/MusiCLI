@@ -73,7 +73,21 @@ Commands register at **module level** (not in `useEffect`) to survive Vite HMR.
 
 ### `server` feature is REPL-only (removed)
 
-`axum` and `tokio` are always compiled (HTTP server always available). There is no `server` feature anymore. `server start/stop/status` commands work in GUI mode without any feature flag.
+`axum` and `tokio` are always compiled (HTTP API always available). There is no `server` feature anymore. `remote start/stop/status` commands work in GUI mode without any feature flag.
+
+### Distribution: Two binaries per platform
+
+Each release ships two artifacts:
+
+| Mode | Binary/Flag | Package | Purpose |
+|------|------------|---------|---------|
+| GUI | `pnpm tauri build` | `.deb` / `.rpm` / `.exe` | Full Tauri desktop player |
+| Headless | `cargo build --bin musicli` | Raw binary, run `musicli --remote` | HTTP API only, no window（可部署为服务端） |
+
+The same `musicli` binary serves both:
+- No flags → GUI mode
+- `--remote` → headless HTTP API, listens on random port, `/status` etc.
+- `--remote --port 3000` → bind specific port
 
 ### Config persistence: raw lang string
 

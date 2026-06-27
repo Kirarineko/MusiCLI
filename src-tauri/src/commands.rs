@@ -155,29 +155,28 @@ pub fn write_config(key: String, value: String) -> Result<(), String> {
     Ok(())
 }
 
-// --- Server control (GUI command) ---
+// --- Remote control (GUI command) ---
 
 #[tauri::command]
-pub fn server_start() -> Result<String, String> {
+pub fn remote_start() -> Result<String, String> {
     let port = std::env::var("MUSICLI_HTTP_PORT").unwrap_or_default();
     if port.is_empty() || port == "0" {
-        return Err("Server not started".into());
+        return Err("Remote not started".into());
     }
-    Ok(format!("Server running on http://127.0.0.1:{}", port))
+    Ok(format!("Remote API on http://127.0.0.1:{}", port))
 }
 
 #[tauri::command]
-pub fn server_stop() -> Result<String, String> {
-    // Server is managed by main.rs — cannot stop from GUI
-    Ok("Server is managed by the application".into())
+pub fn remote_stop() -> Result<String, String> {
+    Ok("Remote is managed by the application".into())
 }
 
 #[tauri::command]
-pub fn server_status() -> Result<String, String> {
+pub fn remote_status() -> Result<String, String> {
     let port = std::env::var("MUSICLI_HTTP_PORT").unwrap_or_default();
     if port.is_empty() || port == "0" {
         Ok("Not running".into())
     } else {
-        Ok(format!("Running on http://127.0.0.1:{}", port))
+        Ok(format!("Remote API on http://127.0.0.1:{}", port))
     }
 }

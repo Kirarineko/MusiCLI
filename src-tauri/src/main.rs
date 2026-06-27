@@ -8,7 +8,7 @@ struct Cli {
     #[arg(long, default_value_t = 0)]
     port: u16,
     #[arg(long)]
-    server: bool,
+    remote: bool,
 }
 
 fn main() {
@@ -21,7 +21,7 @@ fn main() {
     let port = musicli_lib::server::http::start_in_background(state.clone(), cli.port);
     std::env::set_var("MUSICLI_HTTP_PORT", port.to_string());
 
-    if !cli.server {
+    if !cli.remote {
         return musicli_lib::run_gui();
     }
 

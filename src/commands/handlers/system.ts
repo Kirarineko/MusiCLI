@@ -60,17 +60,17 @@ export function registerSystemCommands() {
     }
   }, 'helpAudio');
 
-  register('server', ['srv'], async (args) => {
+  register('remote', ['rmt'], async (args) => {
     const c = ctx();
     const sub = (args[0] || '').toLowerCase();
     const invokeFn: any = (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__)
       ? (await import('@tauri-apps/api/core')).invoke
       : () => Promise.reject('Not in Tauri');
     try {
-      const result = await invokeFn(sub === 'start' ? 'server_start' : sub === 'stop' ? 'server_stop' : 'server_status');
+      const result = await invokeFn(sub === 'start' ? 'remote_start' : sub === 'stop' ? 'remote_stop' : 'remote_status');
       c.printLine(String(result), 'info');
     } catch (err) {
       c.printLine(String(err), 'error');
     }
-  }, 'helpServer');
+  }, 'helpRemote');
 }
