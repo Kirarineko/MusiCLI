@@ -6,7 +6,6 @@ edition = "2021"
 [features]
 default = []
 asio = ["cpal/asio"]
-server = ["rustyline"]
 
 [lib]
 name = "musicli_lib"
@@ -62,7 +61,6 @@ chrono = "0.4"
 # Headless / server mode
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
-rustyline = { version = "15", optional = true }
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]

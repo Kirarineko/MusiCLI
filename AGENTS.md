@@ -46,7 +46,6 @@ src-tauri/src/
   audio/            # Audio engine (Symphonia → cpal)
   server/
     http.rs         # axum HTTP API (always compiled)
-    repl.rs         # CLI REPL (requires --features server)
 ```
 
 ### Frontend Command Handlers
@@ -72,9 +71,9 @@ Commands register at **module level** (not in `useEffect`) to survive Vite HMR.
 
 `tauri` and `tauri-plugin-dialog` are **non-optional** dependencies. There is no `gui` Cargo feature. Tauri is always compiled.
 
-### `server` feature is REPL-only
+### `server` feature is REPL-only (removed)
 
-`axum` and `tokio` are always compiled (HTTP server always available). The `server` feature only gates `rustyline` for the CLI REPL. `server start/stop/status` commands work in GUI mode without any feature flag.
+`axum` and `tokio` are always compiled (HTTP server always available). There is no `server` feature anymore. `server start/stop/status` commands work in GUI mode without any feature flag.
 
 ### Config persistence: raw lang string
 
