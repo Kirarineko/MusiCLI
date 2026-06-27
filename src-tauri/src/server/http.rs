@@ -13,6 +13,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use crate::audio::AudioMode;
+use crate::lrc_parser;
 use crate::server_state::ServerState as SState;
 
 type SharedState = Arc<Mutex<SState>>;
@@ -59,6 +60,7 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/config", get(get_config).put(put_config))
         .route("/lyrics", get(search_lyrics))
         .route("/lyrics/offsets", get(get_lyrics_offsets).post(set_lyrics_offset))
+        .route("/lyrics/parse", get(parse_lyrics))
         .route("/files/list", get(list_dir_files))
         .route("/files/read", get(read_file_base64))
         .route("/sync/export", post(export_sync))
@@ -416,6 +418,34 @@ async fn set_lyrics_offset(
     crate::core::lyrics::write_lrc_offset(&req.lrc_dir, &req.track_name, req.offset_ms)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+struct LyricsParseQuery {
+    audio_path: Option<String>,
+    lrc_path: Option<String>,
+}
+
+async fn parse_lyrics(
+    state: AxumState<SharedState>,
+    Query(q): Query<LyricsParseQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let lrc_path = if let Some(p) = q.lrc_path {
+        p
+    } else if let Some(audio_path) = q.audio_path {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        crate::core::lyrics::find_lrc(&audio_path, &mf)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "No LRC file found".into()))?
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "audio_path or lrc_path required".into()));
+    };
+
+    let content = std::fs::read_to_string(&lrc_path)
+        .map_err(|e| (StatusCode::NOT_FOUND, format!("Failed to read LRC: {}", e)))?;
+    let lines = lrc_parser::parse_lrc(&content);
+    Ok(Json(serde_json::json!(lines)))
 }
 
 // ── Files ───────────────────────────────────────────────────────────

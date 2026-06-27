@@ -1,6 +1,7 @@
 use regex::Regex;
+use serde::Serialize;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct LrcLine {
     pub time: f64,
     pub text: String,
