@@ -66,6 +66,12 @@ pub struct AudioEngine {
     current_path: String,
 }
 
+impl Default for AudioEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioEngine {
     pub fn new() -> Self {
         Self {

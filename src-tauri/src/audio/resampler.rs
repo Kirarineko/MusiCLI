@@ -90,10 +90,9 @@ impl AudioResampler {
                 .map_err(|e| format!("Resample error: {}", e))?;
 
             // Re-interleave output.
-            let out_frames = resampled[0].len();
-            for i in 0..out_frames {
-                for ch in 0..self.channels {
-                    output.push(resampled[ch][i]);
+            for (i, _) in resampled[0].iter().enumerate() {
+                for ch_data in &resampled {
+                    output.push(ch_data[i]);
                 }
             }
         }

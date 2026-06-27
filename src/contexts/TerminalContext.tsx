@@ -9,12 +9,14 @@ import { printHelp as renderHelp } from '../commands/helpLayout';
 type InteractiveCallback = (selected: InteractiveItem[]) => void;
 
 // Standalone helpers (not memoized, no closures — always read latest state)
+// eslint-disable-next-line react-refresh/only-export-components
 export function filterItems(items: InteractiveItem[], query: string): InteractiveItem[] {
   const q = query.toLowerCase();
   if (!q) return items;
   return items.filter(it => it.name.toLowerCase().includes(q));
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function getVisibleIdxFn(items: InteractiveItem[], cursorIdx: number): number {
   const vis = items.filter(it => it.visible);
   if (vis.length === 0) return -1;
@@ -75,6 +77,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const [iidx, setIidx] = useState(0);
   const [ifilter, setIfilter] = useState('');
   const imodeCallbackRef = useRef<InteractiveCallback | null>(null);
+  const [imodeCallback, setImodeCallback] = useState<InteractiveCallback | null>(null);
   const itemsRef = useRef<InteractiveItem[]>([]);
   const [seekMode, setSeekMode] = useState(false);
   const [completeMode, setCompleteMode] = useState(false);
@@ -123,7 +126,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, [printLine, printRaw]);
 
   const printHelp = useCallback(() => {
-    renderHelp(printLine, printRaw, 80);
+    renderHelp(printLine, printRaw);
   }, [printLine, printRaw]);
 
   const clearTerminal = useCallback(() => {
@@ -148,6 +151,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setIidx(0);
     setIfilter('');
     imodeCallbackRef.current = cb;
+    setImodeCallback(() => cb);
     setSelectMode(false);
     // Ensure input stays focused
     setTimeout(() => document.getElementById('cmd-input')?.focus(), 0);
@@ -159,6 +163,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setIidx(0);
     setIfilter('');
     imodeCallbackRef.current = null;
+    setImodeCallback(null);
   }, []);
 
   const enterSeekMode = useCallback(() => {
@@ -224,7 +229,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       enterImode, exitImode,
       setIidx, updateFilter, toggleIitem,
       moveCursor,
-      imodeCallback: imodeCallbackRef.current,
+      imodeCallback,
       seekMode,
       enterSeekMode,
       exitSeekMode,
@@ -236,6 +241,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTerminal() {
   const ctx = useContext(TerminalContext);
   if (!ctx) throw new Error('useTerminal must be used within TerminalProvider');

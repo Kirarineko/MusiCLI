@@ -132,29 +132,6 @@ pub fn extract_zip(zip_path: String, dest_dir: String) -> Result<(), String> {
     Ok(())
 }
 
-// --- Config ---
-#[tauri::command]
-pub fn read_config(key: String) -> Result<serde_json::Value, String> {
-    let music_folder = {
-        let path = core::files::config_path(""); // fallback
-        // Try to get from env or use music folder logic
-        std::env::var("MUSICLI_HTTP_PORT").ok(); // just to probe
-        // Use the actual music folder from wherever it's stored
-        let dirs = dirs::config_dir();
-        dirs.map(|d| d.to_string_lossy().to_string()).unwrap_or_default()
-    };
-    // For Tauri, config is managed by the frontend configStore
-    // This is a thin wrapper for the existing behavior
-    Err("Config read via Tauri commands is deprecated; use settings directly".into())
-}
-
-#[tauri::command]
-pub fn write_config(key: String, value: String) -> Result<(), String> {
-    let _ = (key, value);
-    // Config writes are handled by the frontend configStore
-    Ok(())
-}
-
 // --- Remote control (GUI command) ---
 
 #[tauri::command]

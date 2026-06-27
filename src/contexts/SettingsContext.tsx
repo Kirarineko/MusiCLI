@@ -14,6 +14,7 @@ import {
 import { applyCssVars, toCssShadow } from '../utils/css';
 import { SHADOW_PRESETS } from '../constants/themes';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { applyCssVars, SHADOW_PRESETS };
 
 interface SettingsContextValue {
@@ -220,6 +221,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useSettings() {
   const ctx = useContext(SettingsContext);
   if (!ctx) throw new Error('useSettings must be used within SettingsProvider');
@@ -227,6 +229,7 @@ export function useSettings() {
 }
 
 // Module-level helper for non-React code (synchronous)
+// eslint-disable-next-line react-refresh/only-export-components
 export function getStoredSettings(): AppSettings {
   const result = { ...DEFAULT_SETTINGS };
   const stored = getSettingsFromStore();

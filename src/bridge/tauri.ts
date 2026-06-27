@@ -100,7 +100,7 @@ export const tauriBridge = {
   },
 
   // --- Config ---
-  async readConfig(musicFolder: string, key: string): Promise<any | null | { error: string }> {
+  async readConfig(musicFolder: string, key: string): Promise<unknown | null | { error: string }> {
     try {
       const path = `${musicFolder.replace(/\/$/, '')}/config/${key}.json`;
       const raw = await invoke<string>('read_file', { path });
@@ -109,7 +109,7 @@ export const tauriBridge = {
       return null;
     }
   },
-  async writeConfig(musicFolder: string, key: string, data: any): Promise<{ success?: boolean; error?: string }> {
+  async writeConfig(musicFolder: string, key: string, data: unknown): Promise<{ success?: boolean; error?: string }> {
     try {
       const path = `${musicFolder.replace(/\/$/, '')}/config/${key}.json`;
       const content = typeof data === 'string' ? JSON.stringify(data) : JSON.stringify(data);

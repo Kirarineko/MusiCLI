@@ -229,6 +229,7 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePlaylists() {
   const ctx = useContext(PlaylistContext);
   if (!ctx) throw new Error('usePlaylists must be used within PlaylistProvider');

@@ -96,8 +96,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const s = getStoredSettings();
     if (s.volume != null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setVolumeState(s.volume);
-      try { getBridge().setVolume(s.volume); } catch {}
+      try { getBridge().setVolume(s.volume); } catch { /* noop */ }
     }
     if (s.lyricsTerminal) {
       setLyricsTerminalState(true);
@@ -106,7 +107,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (s.lyricsFloating) {
       setLyricsFloatingState(true);
       lyricsFloatingRef.current = true;
-      try { getBridge().showFloatingLyrics(); } catch {}
+      try { getBridge().showFloatingLyrics(); } catch { /* noop */ }
       // Force-refresh floating lyrics config
       waitFor(() => document.getElementById('lyrics-container'), 3000)
         .then(() => {
@@ -129,7 +130,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const tracks = playlistsCtx.getPlaylistTracks(playlistsCtx.currentPlName) ?? [];
     if (tracks.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPlaylist([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentIndex(-1);
       return;
     }
@@ -483,9 +486,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setLyricsTerminalState(v);
     lastPrintedIdxRef.current = -1;
     if (!v) {
-      try { saveSettingsToStore({ ...getStoredSettings(), lyricsTerminal: false }); } catch {}
+      try { saveSettingsToStore({ ...getStoredSettings(), lyricsTerminal: false }); } catch { /* noop */ }
     } else {
-      try { saveSettingsToStore({ ...getStoredSettings(), lyricsTerminal: true }); } catch {}
+      try { saveSettingsToStore({ ...getStoredSettings(), lyricsTerminal: true }); } catch { /* noop */ }
     }
   }, []);
 
@@ -498,9 +501,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     lyricsFloatingRef.current = v;
     setLyricsFloatingState(v);
     if (v) {
-      try { await getBridge().showFloatingLyrics(); } catch {}
+      try { await getBridge().showFloatingLyrics(); } catch { /* noop */ }
       // Force-sync lyrics settings after opening
-      try { await waitFor(() => document.getElementById('lyrics-container'), 3000); } catch {}
+      try { await waitFor(() => document.getElementById('lyrics-container'), 3000); } catch { /* noop */ }
       const s2 = getStoredSettings();
       const baseFonts = '"Consolas", "Courier New", "Fira Code", monospace';
       getBridge().sendLyricsTheme({
@@ -518,9 +521,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         lyricsVertical: { off: 'horizontal-tb', rl: 'vertical-rl', lr: 'vertical-lr' }[s2.lyricsVertical || 'off'],
       });
     } else {
-      try { await getBridge().hideFloatingLyrics(); } catch {}
+      try { await getBridge().hideFloatingLyrics(); } catch { /* noop */ }
     }
-    try { saveSettingsToStore({ ...getStoredSettings(), lyricsFloating: v }); } catch {}
+    try { saveSettingsToStore({ ...getStoredSettings(), lyricsFloating: v }); } catch { /* noop */ }
   }, []);
 
   const toggleFloatingLyrics = useCallback(async () => {
@@ -556,6 +559,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePlayer() {
   const ctx = useContext(PlayerContext);
   if (!ctx) throw new Error('usePlayer must be used within PlayerProvider');

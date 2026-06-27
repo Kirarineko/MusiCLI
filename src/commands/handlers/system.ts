@@ -63,8 +63,9 @@ export function registerSystemCommands() {
   register('remote', ['rmt'], async (args) => {
     const c = ctx();
     const sub = (args[0] || '').toLowerCase();
-    const invokeFn: any = (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__)
-      ? (await import('@tauri-apps/api/core')).invoke
+    type InvokeFn = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invokeFn: InvokeFn = (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__)
+      ? (await import('@tauri-apps/api/core')).invoke as InvokeFn
       : () => Promise.reject('Not in Tauri');
     try {
       const result = await invokeFn(sub === 'start' ? 'remote_start' : sub === 'stop' ? 'remote_stop' : 'remote_status');

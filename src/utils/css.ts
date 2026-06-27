@@ -16,7 +16,7 @@ export function applyCssVars(s: AppSettings) {
 
   if (s['bg-img']) {
     const imgPath = s['bg-img'].replace(/\\/g, '/');
-    const imgUrl = (window as any).__TAURI_INTERNALS__
+    const imgUrl = (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
       ? convertFileSrc(imgPath)
       : `file:///${imgPath}`;
     root.style.setProperty('--bg-img', `url(${imgUrl})`);

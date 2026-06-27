@@ -28,8 +28,8 @@ export interface IBridge {
   onLyricsUpdate(callback: (data: LyricsUpdateData) => void): () => void;
   onLyricsTheme(callback: (data: LyricsThemeData) => void): () => void;
 
-  readConfig(musicFolder: string, key: string): Promise<any | null | { error: string }>;
-  writeConfig(musicFolder: string, key: string, data: any): Promise<{ success?: boolean; error?: string }>;
+  readConfig(musicFolder: string, key: string): Promise<unknown | null | { error: string }>;
+  writeConfig(musicFolder: string, key: string, data: unknown): Promise<{ success?: boolean; error?: string }>;
 
   selectSyncFile(): Promise<string | null>;
   copyFile(src: string, dest: string): Promise<{ success?: boolean; error?: string }>;
@@ -69,7 +69,7 @@ export function isBridgeAvailable(): boolean {
 export async function initBridge(): Promise<void> {
   if (_bridge) return;
   // Detect Tauri environment
-  if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+  if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__) {
     const { initHybridBridge } = await import('./hybrid');
     setBridge(await initHybridBridge());
     return;

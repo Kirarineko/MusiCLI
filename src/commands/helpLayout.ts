@@ -2,8 +2,7 @@ import { t } from '../i18n';
 
 export function printHelp(
   printLine: (text: string, className?: string) => void,
-  printRaw: (text: string) => void,
-  _maxWidth: number
+  printRaw: (text: string) => void
 ): void {
   printRaw('');
   printLine(`<cmd>${t('helpTitle')}</cmd>`, 'accent');

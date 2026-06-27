@@ -9,6 +9,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use crate::audio::AudioMode;
@@ -250,7 +251,7 @@ async fn mode(
     let s = state.lock().unwrap();
     let mut engine = s.audio_engine.lock().unwrap();
     let am = AudioMode::from_str(&req.mode)
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, format!("Unknown mode: {}", req.mode)))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     engine.set_mode(am);
     Ok(Json(engine.get_mode().to_string()))
 }
@@ -331,7 +332,7 @@ async fn set_audio_mode(
     let s = state.lock().unwrap();
     let mut engine = s.audio_engine.lock().unwrap();
     let am = AudioMode::from_str(&req.mode)
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, format!("Unknown mode: {}", req.mode)))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     engine.set_mode(am);
     Ok(Json(engine.get_mode().to_string()))
 }

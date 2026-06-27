@@ -38,6 +38,12 @@ pub struct ServerState {
     pub status_running: AtomicBool,
 }
 
+impl Default for ServerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerState {
     pub fn new() -> Self {
         Self {

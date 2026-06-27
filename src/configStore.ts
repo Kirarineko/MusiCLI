@@ -144,7 +144,7 @@ let _themes: Theme[] = (() => {
   if (stored.length > 0) return stored;
   // First launch: seed with built-in themes
   const copy = JSON.parse(JSON.stringify(BUILTIN_THEMES));
-  try { localStorage.setItem(LS_KEYS.themes, JSON.stringify(copy)); } catch {}
+  try { localStorage.setItem(LS_KEYS.themes, JSON.stringify(copy)); } catch { /* noop */ }
   return copy;
 })();
 
@@ -155,7 +155,7 @@ let _playlists: Record<string, Playlist> = (() => {
   try {
     localStorage.setItem(LS_KEYS.playlists, JSON.stringify(def.pls));
     localStorage.setItem(LS_KEYS.currentPl, def.cur);
-  } catch {}
+  } catch { /* noop */ }
   return def.pls;
 })();
 
@@ -169,7 +169,7 @@ let _currentPlName: string = (() => {
       localStorage.setItem(LS_KEYS.currentPl, first);
       return first;
     }
-  } catch {}
+  } catch { /* noop */ }
   return '';
 })();
 
@@ -177,7 +177,7 @@ let _lang: Lang = (() => {
   try {
     const raw = localStorage.getItem(LS_KEYS.lang);
     if (raw === 'zh' || raw === 'ja' || raw === 'en') return raw;
-  } catch {}
+  } catch { /* noop */ }
   return 'en';
 })();
 
@@ -186,7 +186,7 @@ if (!_currentPlName || !_playlists[_currentPlName]) {
   const first = Object.keys(_playlists)[0];
   if (first) {
     _currentPlName = first;
-    try { localStorage.setItem(LS_KEYS.currentPl, first); } catch {}
+    try { localStorage.setItem(LS_KEYS.currentPl, first); } catch { /* noop */ }
   }
 }
 

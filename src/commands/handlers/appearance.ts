@@ -113,7 +113,7 @@ async function handleFont(args: string[]) {
     const raw = args[1];
     if (!raw) { c.printLine(t('fontWeightUsage', { v: s.fontWeight || 400 }), 'info'); return; }
     const weightMap: Record<string, number> = { normal: 400, bold: 700, lighter: 300, bolder: 600 };
-    let w = weightMap[raw.toLowerCase()] ?? parseInt(raw, 10);
+    const w = weightMap[raw.toLowerCase()] ?? parseInt(raw, 10);
     if (isNaN(w) || w < 100 || w > 900) { c.printLine(t('fontWeightUsage', { v: s.fontWeight || 400 }), 'info'); return; }
     c.saveSettings({ fontWeight: w });
     c.printLine(t('fontWeightSet', { v: w }), 'success');

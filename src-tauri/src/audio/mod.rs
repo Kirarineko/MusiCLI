@@ -4,6 +4,7 @@ pub mod output;
 pub mod resampler;
 
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use crate::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,12 +23,13 @@ impl std::fmt::Display for AudioMode {
     }
 }
 
-impl AudioMode {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for AudioMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "normal" | "default" | "wasapi" => Some(AudioMode::Wasapi),
-            "asio" | "exclusive" => Some(AudioMode::Asio),
-            _ => None,
+            "normal" | "default" | "wasapi" => Ok(AudioMode::Wasapi),
+            "asio" | "exclusive" => Ok(AudioMode::Asio),
+            _ => Err(format!("Unknown audio mode: {}", s)),
         }
     }
 }
@@ -103,8 +105,7 @@ pub async fn set_audio_mode(
     state: tauri::State<'_, AppState>,
     mode: String,
 ) -> Result<String, String> {
-    let audio_mode = AudioMode::from_str(&mode)
-        .ok_or_else(|| format!("Unknown audio mode: {}. Use 'normal' or 'asio'", mode))?;
+    let audio_mode = AudioMode::from_str(&mode)?;
 
     if audio_mode == AudioMode::Asio {
         #[cfg(not(feature = "asio"))]
