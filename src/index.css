@@ -222,7 +222,7 @@ cmd { color: var(--fg-bright); font-weight: bold; }
   background: var(--bg);
 }
 
-#select-list > div {
+#select-list > span > div {
   line-height: 1.6;
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useTerminal, filterItems, getVisibleIdxFn } from '../contexts/TerminalContext';
 import { t } from '../i18n';
 import { escapeHtml } from '../utils/format';
+import { SafeHtml } from './SafeHtml';
 
 export function SelectList() {
   const {
@@ -83,7 +84,8 @@ export function SelectList() {
       id="select-list"
       ref={elRef}
       onWheel={handleWheel}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    >
+      <SafeHtml html={html} />
+    </div>
   );
 }

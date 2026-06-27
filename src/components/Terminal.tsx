@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTerminal } from '../contexts/TerminalContext';
 import { t } from '../i18n';
+import { SafeHtml } from './SafeHtml';
 
 export function Terminal() {
   const { lines } = useTerminal();
@@ -19,11 +20,9 @@ export function Terminal() {
         line.raw ? (
           <div key={line.id} className={'line ' + line.className}>{line.text}</div>
         ) : (
-          <div
-            key={line.id}
-            className={'line ' + line.className}
-            dangerouslySetInnerHTML={{ __html: line.text }}
-          />
+          <div key={line.id} className={'line ' + line.className}>
+            <SafeHtml html={line.text} />
+          </div>
         )
       ))}
     </div>
