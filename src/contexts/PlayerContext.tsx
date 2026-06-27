@@ -60,8 +60,8 @@ const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const settings = useSettings();
-  const playlistRef = useRef<string[]>([]);
-  const currentIndexRef = useRef(-1);
+  const [playlist, setPlaylist] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState<number>(-1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(80);
@@ -70,6 +70,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [lyricsLines, setLyricsLines] = useState<LrcLine[]>([]);
   const [lyricsTerminal, setLyricsTerminalState] = useState(false);
   const [lyricsFloating, setLyricsFloatingState] = useState(false);
+  const [lrcPath, setLrcPath] = useState<string>('');
   const lyricsTerminalRef = useRef(false);
   const lyricsFloatingRef = useRef(false);
   const lastPrintedIdxRef = useRef(-1);
@@ -78,10 +79,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const endedCallbacksRef = useRef<Array<() => void>>([]);
   const loadLrcRef = useRef<((path: string) => void) | null>(null);
   const lyricPrinterRef = useRef<((text: string, className?: string) => void) | null>(null);
-  const isPlayingRef = useRef(false);
   const durationRef = useRef(0);
   const currentTimeRef = useRef(0);
-  const lrcPathRef = useRef('');
   const autoNextGuardRef = useRef(false);
 
   const registerLyricPrinter = useCallback((fn: (text: string, className?: string) => void) => {
@@ -122,11 +121,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const nextShuffleIndex = useCallback(() => {
-    if (playlistRef.current.length === 0) return -1;
+    if (playlist.length === 0) return -1;
     if (shuffleStackRef.current.length === 0) {
       const pool: number[] = [];
-      for (let i = 0; i < playlistRef.current.length; i++) {
-        if (i !== currentIndexRef.current) pool.push(i);
+      for (let i = 0; i < playlist.length; i++) {
+        if (i !== currentIndex) pool.push(i);
       }
       for (let i = pool.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -135,7 +134,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       shuffleStackRef.current = pool;
     }
     return shuffleStackRef.current.pop() ?? -1;
-  }, []);
+  }, [playlist, currentIndex]);
 
   // Play a track via Rust audio engine (async, fire-and-forget from sync context)
   const playTrackAsync = useCallback(async (fp: string) => {
@@ -147,60 +146,57 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       currentTimeRef.current = 0;
       await getBridge().audioPlay(fp);
       setIsPlaying(true);
-      isPlayingRef.current = true;
     } catch (e) {
       console.error('[player] playTrackAsync error:', e);
     }
   }, []);
 
   const playIndex = useCallback((idx: number) => {
-    if (idx < 0 || idx >= playlistRef.current.length) return undefined;
-    currentIndexRef.current = idx;
-    const fp = playlistRef.current[idx];
+    if (idx < 0 || idx >= playlist.length) return undefined;
+    setCurrentIndex(idx);
+    const fp = playlist[idx];
     playTrackAsync(fp);
     return fp;
-  }, [playTrackAsync]);
+  }, [playlist, playTrackAsync]);
 
   const addToPlaylist = useCallback((paths: string[]) => {
-    for (const p of paths) {
-      if (!playlistRef.current.includes(p)) playlistRef.current.push(p);
-    }
+    setPlaylist(prev => {
+      const toAdd = paths.filter(p => !prev.includes(p));
+      return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+    });
   }, []);
 
   const clearPlaylist = useCallback(() => {
-    playlistRef.current.length = 0;
-    currentIndexRef.current = -1;
+    setPlaylist([]);
+    setCurrentIndex(-1);
   }, []);
 
   const play = useCallback(() => {
-    const fp = playlistRef.current[currentIndexRef.current];
+    const fp = playlist[currentIndex];
     if (fp) {
       getBridge().audioPlay(fp).then(() => {
         setIsPlaying(true);
-        isPlayingRef.current = true;
       }).catch(() => {});
     }
-  }, []);
+  }, [playlist, currentIndex]);
 
   const pause = useCallback(() => {
     getBridge().audioPause().then(() => {
       setIsPlaying(false);
-      isPlayingRef.current = false;
     }).catch(() => {});
   }, []);
 
   const toggle = useCallback(() => {
-    if (isPlayingRef.current) {
+    if (isPlaying) {
       pause();
     } else {
       play();
     }
-  }, [play, pause]);
+  }, [isPlaying, play, pause]);
 
   const stop = useCallback(() => {
     getBridge().audioStop().then(() => {
       setIsPlaying(false);
-      isPlayingRef.current = false;
       setCurrentTime(0);
       currentTimeRef.current = 0;
       shuffleStackRef.current = [];
@@ -208,21 +204,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const next = useCallback(() => {
-    if (playlistRef.current.length === 0) return undefined;
+    if (playlist.length === 0) return undefined;
     if (playModeRef.current === 'shuffle') {
       const idx = nextShuffleIndex();
       if (idx < 0) return undefined;
       return playIndex(idx);
     }
-    const idx = (currentIndexRef.current + 1) % playlistRef.current.length;
+    const idx = (currentIndex + 1) % playlist.length;
     return playIndex(idx);
-  }, [playIndex, nextShuffleIndex]);
+  }, [playlist, currentIndex, playIndex, nextShuffleIndex]);
 
   const prev = useCallback(() => {
-    if (playlistRef.current.length === 0) return undefined;
-    const idx = (currentIndexRef.current - 1 + playlistRef.current.length) % playlistRef.current.length;
+    if (playlist.length === 0) return undefined;
+    const idx = (currentIndex - 1 + playlist.length) % playlist.length;
     return playIndex(idx);
-  }, [playIndex]);
+  }, [playlist, currentIndex, playIndex]);
 
   const seek = useCallback((secs: number) => {
     getBridge().audioSeek(secs).then(() => {
@@ -285,23 +281,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           autoNextGuardRef.current = true;
           // Track ended — handle play mode
           if (playModeRef.current === 'repeat-one') {
-            playIndex(currentIndexRef.current);
+            playIndex(currentIndex);
           } else if (playModeRef.current === 'shuffle') {
             const idx = nextShuffleIndex();
             if (idx >= 0) playIndex(idx);
           } else if (playModeRef.current === 'repeat-all') {
-            playIndex((currentIndexRef.current + 1) % playlistRef.current.length);
+            playIndex((currentIndex + 1) % playlist.length);
           } else {
-            const nextTrack = currentIndexRef.current + 1;
-            if (nextTrack < playlistRef.current.length) {
+            const nextTrack = currentIndex + 1;
+            if (nextTrack < playlist.length) {
               playIndex(nextTrack);
             } else {
               setIsPlaying(false);
-              isPlayingRef.current = false;
             }
           }
           // Load lyrics for new track
-          const fp = playlistRef.current[currentIndexRef.current];
+          const fp = playlist[currentIndex];
           if (fp && loadLrcRef.current) loadLrcRef.current(fp);
           endedCallbacksRef.current.forEach(fn => fn());
         }
@@ -311,7 +306,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }, 100);
 
     return () => clearInterval(interval);
-  }, [isPlaying, playIndex, nextShuffleIndex]);
+  }, [isPlaying, playlist, currentIndex, playIndex, nextShuffleIndex]);
 
   // Lyrics methods
   const loadLRC = useCallback(async (mp3Path: string): Promise<boolean> => {
@@ -320,8 +315,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     lastSentFloatingIdxRef.current = -1;
 
     const filename = mp3Path.split(/[/\\]/).pop()!.replace(/\.[^.]+$/, '.lrc');
-    const lrcPath = mp3Path.replace(/\.[^.]+$/, '.lrc');
-    let result: string | { error: string } = await getBridge().readFile(lrcPath);
+    const candidatePath = mp3Path.replace(/\.[^.]+$/, '.lrc');
+    let result: string | { error: string } = await getBridge().readFile(candidatePath);
 
     // 1. Try lrc/ subfolder in music folder
     if (hasError(result)) {
@@ -384,8 +379,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // or position is stale from a previous track (auto-advance).
     const curPos = currentTimeRef.current;
     const dur = durationRef.current;
-    const trackSwitched = mp3Path !== lrcPathRef.current;
-    lrcPathRef.current = mp3Path;
+    const trackSwitched = mp3Path !== lrcPath;
+    setLrcPath(mp3Path);
     if (curPos < 0.5 || curPos > dur + 1.0 || trackSwitched) {
       // Track just started or position is stale — start from beginning.
       lastPrintedIdxRef.current = -1;
@@ -405,7 +400,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       'lastIdx:', lastPrintedIdxRef.current, 'curPos:', curPos, 'dur:', dur);
     setLyricsLines(lines);
     return lines.length > 0;
-  }, []);
+  }, [lrcPath]);
   // Keep ref synced so polling can call loadLRC
   useEffect(() => { loadLrcRef.current = loadLRC; }, [loadLRC]);
 
@@ -512,12 +507,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const s = getStoredSettings();
 
-  const getPlaylist = useCallback(() => playlistRef.current, []);
+  const getPlaylist = useCallback(() => playlist, [playlist]);
 
   return (
     <PlayerContext.Provider value={{
-      playlist: playlistRef.current,
-      currentIndex: currentIndexRef.current,
+      playlist,
+      currentIndex,
       getPlaylist,
       addToPlaylist, clearPlaylist,
       play, pause, toggle, stop, playIndex, next, prev, seek,
