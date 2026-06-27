@@ -134,3 +134,37 @@ The app binds to a random port via `TcpListener::bind("127.0.0.1:0")` to discove
 - **AGENTS.md** — If you discover a new gotcha, add it here.
 - **translations.ts** — If you add a command with a `helpKey`, ensure the key exists in all three language objects.
 - **completions.ts** — If you add new subcommands, add them to the tab-completion list.
+
+## Cache Efficiency (for AI agents)
+
+To minimize context roundtrips and maximize context caching hit rate:
+
+### Batch reads first, then batch writes
+- **Round 1**: parallel-read **all** files needed (not "read 1 file → edit → read next file").
+- **Round 2**: parallel-apply **all** edits.
+- **Round 3**: parallel-run **all** verifications (lint, typecheck, test, clippy).
+
+### Run diagnostics in parallel with reads
+- `pnpm lint`, `cargo clippy`, `pnpm test`, `cargo test` can all run in the same round as file reads.
+- Never: "run lint → see errors → read file → edit → run lint again". This bounces between rounds N times instead of 3.
+
+### Anti-pattern (what burns cache)
+```
+bash: pnpm lint                    # round 1
+read: file1.ts                     # round 2
+edit: file1.ts                     # round 3
+read: file2.ts                     # round 4
+edit: file2.ts                     # round 5
+bash: pnpm lint                    # round 6
+```
+Each round is a separate context computation — cache miss × 6.
+
+### Correct pattern
+```
+bash: pnpm lint                     ─┐
+read: [all files with errors]       ─┤ round 1 (parallel)
+bash: cargo clippy                  ─┘
+edit: [all edits]                    ─ round 2 (parallel)
+bash: pnpm lint + cargo clippy      ─ round 3 (parallel verify)
+```
+At most 3 rounds for any batch fix.
