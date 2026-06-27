@@ -5,7 +5,7 @@ import { usePlaylists } from '../contexts/PlaylistContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getCommand, getAllCommandNames } from '../commands/registry';
 import { subCompletions } from '../commands/completions';
-import { setCommandContext, type CommandContext } from '../commands/handlers';
+import { setCommandContext, type CommandContext } from '../commands/handlers/index';
 import { escapeHtml } from '../utils/format';
 import { t } from '../i18n';
 import { getBridge } from '../bridge';

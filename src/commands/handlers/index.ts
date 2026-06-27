@@ -74,8 +74,6 @@ export interface CommandContext {
   setLangFn: (lang: string) => boolean;
   // Lyrics floating window
   syncLyricsTheme: () => void;
-  // Misc
-  getStoredSettings: () => import('../../types').AppSettings;
 }
 
 let _ctx: CommandContext | null = null;
@@ -134,6 +132,25 @@ export function showMetadata(meta: MetadataResult | null) {
     [t('fieldCodec'), meta.codec],
   ]);
 }
+
+import { registerSystemCommands } from './system';
+import { registerLyricsCommands } from './lyrics';
+import { registerAppearanceCommands } from './appearance';
+import { registerSyncCommands } from './sync';
+import { registerPlaylistCommands } from './playlist';
+import { registerPlaybackCommands } from './playback';
+
+export function registerAllCommands() {
+  registerSystemCommands();
+  registerLyricsCommands();
+  registerAppearanceCommands();
+  registerSyncCommands();
+  registerPlaylistCommands();
+  registerPlaybackCommands();
+}
+
+// Register at module load time — survives Vite HMR
+registerAllCommands();
 
 export async function playTrack(filePath: string, printPlaying: boolean = true) {
   const c = ctx();
