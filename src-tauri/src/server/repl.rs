@@ -15,6 +15,22 @@ pub fn format_time(secs: f64) -> String {
     if h > 0 { format!("{}:{:02}:{:02}", h, m, s) } else { format!("{}:{:02}", m, s) }
 }
 
+fn term_width() -> usize {
+    std::env::var("COLUMNS").ok().and_then(|s| s.parse().ok()).unwrap_or(80)
+}
+
+fn display_width(s: &str) -> usize {
+    s.chars().map(|c| if (c as u32) > 0x7F { 2 } else { 1 }).sum()
+}
+
+fn visual_lines(s: &str) -> usize {
+    let tw = term_width();
+    s.split('\n').map(|seg| {
+        let w = display_width(seg);
+        if w == 0 { 1 } else { (w + tw - 1) / tw }
+    }).sum::<usize>().max(1)
+}
+
 fn bar_str(pos: f64, dur: f64, w: u32, fill: char, empty: char) -> String {
     if dur <= 0.0 { return format!("[{}{}]", empty, empty.to_string().repeat(w.saturating_sub(1) as usize)); }
     let ratio = (pos / dur).clamp(0.0, 1.0);
@@ -146,20 +162,17 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             let track = s.current_index.lock().unwrap().and_then(|i| s.playlist.lock().unwrap().get(i).cloned())
                 .and_then(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
             let bar = bar_str(pos, dur, s.progress_width, s.progress_filled, s.progress_empty);
-            let mut lines = 1usize;
             let mut output = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
             let ll = s.lrc_lines.lock().unwrap();
             if *s.lrc_enabled.lock().unwrap() && !ll.is_empty() {
                 let ci = crate::lrc_parser::get_current_line_idx(&ll, pos);
                 if ci >= 0 {
                     output.push_str(&format!("\n  \x1B[33m♪\x1B[0m {}", ll[ci as usize].text));
-                    lines += 1;
                     let nc = *s.lrc_next_count.lock().unwrap();
                     for i in 1..=nc.min(ll.len().saturating_sub(ci as usize + 1)) {
                         let idx = ci as usize + i;
                         if idx < ll.len() {
                             output.push_str(&format!("\n    {}", ll[idx].text));
-                            lines += 1;
                         }
                     }
                 }
@@ -167,11 +180,11 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             drop(ll); drop(engine); drop(s);
             if (pos - last_pos).abs() > 0.5 {
                 last_pos = pos;
-                // Move up past previous output block, clear downward, print new block
+                let cur_lines = visual_lines(&output) + 1; // +1 for printer's trailing newline
                 if prev_lines > 0 {
                     output = format!("\x1B[{}A\x1B[J{}", prev_lines, output);
                 }
-                prev_lines = lines;
+                prev_lines = cur_lines;
                 let _ = printer.print(output);
             }
         }
