@@ -538,40 +538,23 @@ async fn import_sync(
     let incoming: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Malformed playlists.json: {}", e)))?;
 
-    // Merge into existing playlists file
-    let path = Path::new(&mf).join("config").join("playlists.json");
-    let mut existing: serde_json::Value = if path.exists() {
-        let raw = fs::read_to_string(&path)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        serde_json::from_str(&raw).unwrap_or(serde_json::json!({ "playlists": {}, "current": "Default" }))
-    } else {
-        serde_json::json!({ "playlists": {}, "current": "Default" })
-    };
-
-    if let (Some(in_pls), Some(ex_pls)) = (
-        incoming.get("playlists").and_then(|v| v.as_object()),
-        existing.get_mut("playlists").and_then(|v| v.as_object_mut()),
-    ) {
-        for (name, pl) in in_pls {
-            if !ex_pls.contains_key(name) {
-                ex_pls.insert(name.clone(), pl.clone());
+    let incoming_pls = incoming
+        .get("playlists")
+        .and_then(|v| v.as_object());
+    let mut imported_count: usize = 0;
+    if let Some(pls_obj) = incoming_pls {
+        for (name, pl) in pls_obj {
+            let tracks: Vec<String> = pl.get("tracks")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let desc = pl.get("desc").and_then(|v| v.as_str());
+            match crate::core::playlist::create_playlist(&mf, name, desc, &tracks) {
+                Ok(()) => { imported_count += 1; }
+                Err(e) if e == "duplicate" => { /* skip existing */ }
+                Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
             }
         }
     }
-
-    let merged_json = serde_json::to_string_pretty(&existing)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    }
-    fs::write(&path, merged_json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let imported_count = incoming
-        .get("playlists")
-        .and_then(|v| v.as_object())
-        .map(|o| o.len())
-        .unwrap_or(0);
     Ok(Json(serde_json::json!({ "imported": imported_count })))
 }

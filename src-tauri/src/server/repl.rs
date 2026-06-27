@@ -39,12 +39,6 @@ fn parse_range(input: &str, max: usize) -> Vec<usize> {
     result.sort(); result.dedup(); result
 }
 
-fn now_iso() -> String {
-    use std::time::SystemTime;
-    let dur = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
-    chrono::DateTime::from_timestamp(dur.as_secs() as i64, 0).unwrap_or_default().to_rfc3339()
-}
-
 fn load_config(s: &mut ServerState) {
     let mf = s.music_folder.lock().unwrap().clone(); if mf.is_empty() { return; }
     if let Ok(Some(v)) = crate::config_cmd::read_config_sync(&mf, "settings") {
@@ -59,44 +53,64 @@ fn load_config(s: &mut ServerState) {
     }
 }
 
-fn load_playlists(s: &ServerState) {
+fn refresh_playlists_cache(s: &ServerState) {
     let mf = s.music_folder.lock().unwrap().clone(); if mf.is_empty() { return; }
-    if let Ok(Some(v)) = crate::config_cmd::read_config_sync(&mf, "playlists") {
-        if let Some(o) = v.as_object() {
-            if let Some(pls) = o.get("pls").and_then(|v| v.as_object()) {
-                let mut list = s.playlists.lock().unwrap(); list.clear();
-                for (name, pl) in pls { if let Some(pl_o) = pl.as_object() {
-                    list.push(NamedPlaylist {
-                        name: name.clone(), desc: pl_o.get("desc").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        created_at: pl_o.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        tracks: pl_o.get("tracks").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default(),
-                    });
-                }}
-            }
-            if let Some(cur) = o.get("cur").and_then(|v| v.as_str()) { *s.current_pl.lock().unwrap() = cur.to_string(); }
+    if let Ok(infos) = crate::core::playlist::list_playlists(&mf) {
+        let mut list = s.playlists.lock().unwrap();
+        list.clear();
+        for info in infos {
+            let tracks = crate::core::playlist::get_playlist(&mf, &info.name)
+                .ok().flatten()
+                .map(|p| p.tracks)
+                .unwrap_or_default();
+            list.push(NamedPlaylist {
+                name: info.name,
+                desc: info.desc,
+                created_at: info.created_at,
+                tracks,
+            });
         }
     }
+    if let Ok(cur) = crate::core::playlist::get_current_playlist_name(&mf) {
+        *s.current_pl.lock().unwrap() = cur;
+    }
+}
+
+fn load_playlists(s: &ServerState) {
+    refresh_playlists_cache(s);
 }
 
 fn save_playlists(s: &ServerState) {
     let mf = s.music_folder.lock().unwrap().clone(); if mf.is_empty() { return; }
-    let pls_val: serde_json::Map<String, serde_json::Value> = s.playlists.lock().unwrap().iter().map(|p| {
-        (p.name.clone(), serde_json::json!({"name":p.name,"desc":p.desc,"createdAt":p.created_at,"tracks":p.tracks}))
-    }).collect();
+    let pls = s.playlists.lock().unwrap();
     let cur = s.current_pl.lock().unwrap().clone();
-    let _ = crate::config_cmd::write_config_sync(&mf, "playlists", &serde_json::json!({"pls":pls_val,"cur":cur}));
+    let data: serde_json::Map<String, serde_json::Value> = pls.iter().map(|p| {
+        (p.name.clone(), serde_json::json!({
+            "name": p.name, "desc": p.desc, "created_at": p.created_at,
+            "updated_at": null, "sharer": null, "tracks": p.tracks,
+        }))
+    }).collect();
+    let playlists_file = serde_json::json!({ "playlists": data, "current": cur });
+    let path = std::path::Path::new(&mf).join("config").join("playlists.json");
+    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).ok(); }
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(&playlists_file).unwrap_or_default());
 }
 
 fn sync_current_playlist(s: &ServerState) {
-    let cur = s.current_pl.lock().unwrap().clone(); let pls = s.playlists.lock().unwrap();
-    if let Some(p) = pls.iter().find(|p| p.name == cur) { let mut list = s.playlist.lock().unwrap(); list.clear(); list.extend(p.tracks.clone()); }
+    let mf = s.music_folder.lock().unwrap().clone();
+    let cur = s.current_pl.lock().unwrap().clone();
+    if let Ok(Some(pl)) = crate::core::playlist::get_playlist(&mf, &cur) {
+        let mut list = s.playlist.lock().unwrap();
+        list.clear();
+        list.extend(pl.tracks);
+    }
 }
 
 fn load_lyrics(s: &ServerState, mp3_path: &str) {
     let mut lines = s.lrc_lines.lock().unwrap(); lines.clear(); *s.lrc_last_idx.lock().unwrap() = -1; *s.lrc_loaded_for.lock().unwrap() = mp3_path.to_string();
     let mf = s.music_folder.lock().unwrap().clone(); if mf.is_empty() { return; }
-    if let Ok(Some(lrc_path)) = crate::lrc_cmd::find_lrc_sync(mp3_path, &mf) {
-        if let Ok(content) = crate::fs_cmd::read_file_sync(&lrc_path) { *lines = crate::lrc_parser::parse_lrc(&content); }
+    if let Ok(Some(lrc_path)) = crate::core::lyrics::find_lrc(mp3_path, &mf) {
+        if let Ok(content) = crate::core::files::read_file(&lrc_path) { *lines = crate::lrc_parser::parse_lrc(&content); }
     }
 }
 
@@ -250,13 +264,13 @@ fn list(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unw
 
 fn open(state: &Arc<Mutex<ServerState>>, args: &[&str]) { if args.first()==Some(&"dir")||args.is_empty(){print!("Music directory: ");let _=io::stdout().flush();let mut p=String::new();io::stdin().read_line(&mut p).ok();let p=p.trim().to_string();if p.is_empty(){return;}load_folder(state,&p);}else{let path=args.join(" ");let s=state.lock().unwrap();s.playlist.lock().unwrap().clear();s.playlist.lock().unwrap().push(path.clone());*s.current_index.lock().unwrap()=Some(0);drop(s);play_track(state,&path,0);} }
 
-fn load_folder(state: &Arc<Mutex<ServerState>>, dir: &str) { match crate::fs_cmd::list_audio_files_sync(dir){ Ok(files)=>{ if files.is_empty(){println!("No audio files.");return;} let s=state.lock().unwrap();*s.music_folder.lock().unwrap()=dir.to_string();s.playlist.lock().unwrap().clear();s.playlist.lock().unwrap().extend(files.clone());*s.current_index.lock().unwrap()=Some(0);let cur=s.current_pl.lock().unwrap().clone();if let Some(p)=s.playlists.lock().unwrap().iter_mut().find(|p|p.name==cur){p.tracks=files.clone();}save_playlists(&s);println!("Loaded {} tracks from {}",files.len(),dir);if !files.is_empty(){let p=files[0].clone();drop(s);play_track(state,&p,0);}} Err(e)=>println!("Error: {}",e), } }
+fn load_folder(state: &Arc<Mutex<ServerState>>, dir: &str) { match crate::core::files::list_audio_files(dir){ Ok(files)=>{ if files.is_empty(){println!("No audio files.");return;} let s=state.lock().unwrap();*s.music_folder.lock().unwrap()=dir.to_string();s.playlist.lock().unwrap().clear();s.playlist.lock().unwrap().extend(files.clone());*s.current_index.lock().unwrap()=Some(0);let cur=s.current_pl.lock().unwrap().clone();if let Some(p)=s.playlists.lock().unwrap().iter_mut().find(|p|p.name==cur){p.tracks=files.clone();}save_playlists(&s);println!("Loaded {} tracks from {}",files.len(),dir);if !files.is_empty(){let p=files[0].clone();drop(s);play_track(state,&p,0);}} Err(e)=>println!("Error: {}",e), } }
 
 fn audio(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); if let Some(m)=args.first(){ if let Some(am)=AudioMode::from_str(m){s.audio_engine.lock().unwrap().set_mode(am);println!("Mode: {}",am);}else{println!("Unknown: {}. Use normal/asio",m);} }else{println!("Mode: {}",s.audio_engine.lock().unwrap().get_mode());} }
 
 fn devices() { use cpal::traits::{DeviceTrait,HostTrait}; if let Ok(h)=cpal::default_host().output_devices(){for(i,d) in h.enumerate(){if let Ok(desc)=d.description(){println!("  {}. {}",i+1,desc.name());}}} }
 
-fn info(state: &Arc<Mutex<ServerState>>) { let s=state.lock().unwrap(); let idx=s.current_index.lock().unwrap().unwrap_or(0); let path=s.playlist.lock().unwrap().get(idx).cloned(); drop(s); if let Some(p)=path { match crate::metadata_cmd::read_metadata_sync(&p){ Ok(m)=>{ println!("\n  {}",m.title);println!("  Artist: {}",m.artist);println!("  Album:  {}",m.album);if let Some(y)=m.year{println!("  Year:   {}",y);}if let Some(g)=&m.genre{println!("  Genre:  {}",g);}if m.duration>0.0{println!("  Length: {}",format_time(m.duration));}} Err(e)=>println!("Error: {}",e),} } else { println!("No track."); } }
+fn info(state: &Arc<Mutex<ServerState>>) { let s=state.lock().unwrap(); let idx=s.current_index.lock().unwrap().unwrap_or(0); let path=s.playlist.lock().unwrap().get(idx).cloned(); drop(s); if let Some(p)=path { match crate::core::metadata::read_metadata(&p){ Ok(m)=>{ println!("\n  {}",m.title);println!("  Artist: {}",m.artist);println!("  Album:  {}",m.album);if let Some(y)=m.year{println!("  Year:   {}",y);}if let Some(g)=&m.genre{println!("  Genre:  {}",g);}if m.duration.unwrap_or(0.0)>0.0{println!("  Length: {}",format_time(m.duration.unwrap_or(0.0)));}} Err(e)=>println!("Error: {}",e),} } else { println!("No track."); } }
 
 fn bar(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let mut s=state.lock().unwrap(); if args.is_empty(){let e=s.audio_engine.lock().unwrap();let b=bar_str(e.get_position(),e.get_duration(),s.progress_width,s.progress_filled,s.progress_empty);println!("\n  {}  [{}/{}]",b,format_time(e.get_position()),format_time(e.get_duration()));return;} match args[0]{"width"=>{if let Some(w)=args.get(1).and_then(|a|a.parse::<u32>().ok()){s.progress_width=w.clamp(10,80);}println!("Width: {}",s.progress_width);}"char"|"chars"=>{if args.len()>=3{if let Some(c)=args[1].chars().next(){s.progress_filled=c;}if let Some(c)=args[2].chars().next(){s.progress_empty=c;}}println!("Chars: f='{}' e='{}'",s.progress_filled,s.progress_empty);}_=>println!("bar [width <n>|char <f> <e>]"),} }
 
@@ -264,22 +278,22 @@ fn lyric(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().un
 
 fn mode(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let modes=["normal","repeat-one","repeat-all","shuffle"]; let names=["Normal","Repeat-One","Repeat-All","Shuffle"]; let mut pm=s.play_mode.lock().unwrap(); if let Some(a)=args.first(){let al=a.to_lowercase();if let Some(i)=modes.iter().position(|m|*m==al){*pm=modes[i].to_string();}else if let Some(i)=names.iter().position(|m|m.to_lowercase().starts_with(&al)){*pm=modes[i].to_string();}else{println!("Unknown. Use normal/repeat-one/repeat-all/shuffle");return;}}else{let i=(modes.iter().position(|m|*m==*pm).unwrap_or(0)+1)%4;*pm=modes[i].to_string();}println!("Mode: {}",names[modes.iter().position(|m|*m==*pm).unwrap_or(0)]);}
 
-fn pl(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let sub=args.first().copied().unwrap_or(""); let rest=args.get(1..).unwrap_or(&[]);
-match sub { "create"|"new"=>{let name=rest.first().copied().unwrap_or("");if name.is_empty(){println!("pl create <name> [desc]");return;}let desc=rest.get(1).copied().unwrap_or("");let mut pls=s.playlists.lock().unwrap();if pls.iter().any(|p|p.name==name){println!("'{}' exists.",name);return;}pls.push(NamedPlaylist{name:name.to_string(),desc:desc.to_string(),created_at:now_iso(),tracks:vec![]});save_playlists(&s);println!("Created '{}'.",name);}
-"delete"|"rm"|"del"=>{let name=rest.join(" ");if name.is_empty(){println!("pl delete <name>");return;}let mut pls=s.playlists.lock().unwrap();if pls.len()<=1{println!("Cannot delete last playlist.");return;}if let Some(i)=pls.iter().position(|p|p.name==name){pls.remove(i);if*s.current_pl.lock().unwrap()==name{*s.current_pl.lock().unwrap()=pls[0].name.clone();}save_playlists(&s);println!("Deleted '{}'.",name);}else{println!("Not found: {}",name);}}
-"list"|"ls"|""=>{let pls=s.playlists.lock().unwrap();let cur=s.current_pl.lock().unwrap();for p in pls.iter(){println!("{} {}  [{}]",if p.name==*cur{"▶"}else{" "},p.name,p.tracks.len());}}
-"switch"|"sw"=>{let name=rest.join(" ");if name.is_empty(){println!("pl switch <name>");return;}if s.playlists.lock().unwrap().iter().any(|p|p.name==name){*s.current_pl.lock().unwrap()=name.clone();save_playlists(&s);sync_current_playlist(&s);*s.current_index.lock().unwrap()=None;println!("Switched to '{}'.",name);}else{println!("Not found: {}",name);}}
-"info"=>{let name=if rest.is_empty(){s.current_pl.lock().unwrap().clone()}else{rest.join(" ")};if let Some(p)=s.playlists.lock().unwrap().iter().find(|p|p.name==name){println!("\n  {}  [{} tracks]",p.name,p.tracks.len());if !p.desc.is_empty(){println!("  {}",p.desc);}for (i,t) in p.tracks.iter().enumerate(){let n=std::path::Path::new(t).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default();println!("    {}. {}",i+1,n);}}else{println!("Not found: {}",name);}}
+fn pl(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let sub=args.first().copied().unwrap_or(""); let rest=args.get(1..).unwrap_or(&[]); let mf=s.music_folder.lock().unwrap().clone();
+match sub { "create"|"new"=>{ let name=rest.first().copied().unwrap_or("");if name.is_empty(){println!("pl create <name> [desc]");return;} let desc=rest.get(1).copied().unwrap_or(""); drop(s); match crate::core::playlist::create_playlist(&mf, name, if desc.is_empty() { None } else { Some(desc) }, &[]) { Ok(())=>{} Err(e)=>if e=="duplicate"{println!("'{}' exists.",name);return;}else{println!("Error: {}",e);return;} } let s=state.lock().unwrap();refresh_playlists_cache(&s);println!("Created '{}'.",name); }
+"delete"|"rm"|"del"=>{ let name=rest.join(" ");if name.is_empty(){println!("pl delete <name>");return;} drop(s); match crate::core::playlist::delete_playlist(&mf, &name) { Ok(())=>{} Err(e)=>if e=="not_found"{println!("Not found: {}",name);return;}else if e=="last_one"{println!("Cannot delete last playlist.");return;}else{println!("Error: {}",e);return;} } let s=state.lock().unwrap();refresh_playlists_cache(&s);sync_current_playlist(&s);*s.current_index.lock().unwrap()=None;println!("Deleted '{}'.",name); }
+"list"|"ls"|""=>{ let pls=s.playlists.lock().unwrap();let cur=s.current_pl.lock().unwrap();for p in pls.iter(){println!("{} {}  [{}]",if p.name==*cur{"▶"}else{" "},p.name,p.tracks.len());} }
+"switch"|"sw"=>{ let name=rest.join(" ");if name.is_empty(){println!("pl switch <name>");return;} drop(s); match crate::core::playlist::switch_playlist(&mf, &name) { Ok(Some(_))=>{} Ok(None)=>{println!("Not found: {}",name);return;} Err(e)=>{println!("Error: {}",e);return;} } let s=state.lock().unwrap();refresh_playlists_cache(&s);sync_current_playlist(&s);*s.current_index.lock().unwrap()=None;println!("Switched to '{}'.",name); }
+"info"=>{ let name=if rest.is_empty(){s.current_pl.lock().unwrap().clone()}else{rest.join(" ")};if let Some(p)=s.playlists.lock().unwrap().iter().find(|p|p.name==name){println!("\n  {}  [{} tracks]",p.name,p.tracks.len());if !p.desc.is_empty(){println!("  {}",p.desc);}for (i,t) in p.tracks.iter().enumerate(){let n=std::path::Path::new(t).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default();println!("    {}. {}",i+1,n);}}else{println!("Not found: {}",name);} }
 _=>println!("pl create|delete|list|switch|info"), } }
 
-fn cd(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let name=args.join(" "); if name.is_empty(){println!("cd <name>");return;} let s=state.lock().unwrap(); if s.playlists.lock().unwrap().iter().any(|p|p.name==name){*s.current_pl.lock().unwrap()=name.clone();save_playlists(&s);sync_current_playlist(&s);*s.current_index.lock().unwrap()=None;println!("Switched to '{}'.",name);}else{println!("Not found: {}",name);} }
+fn cd(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let name=args.join(" "); if name.is_empty(){println!("cd <name>");return;} let s=state.lock().unwrap(); let mf=s.music_folder.lock().unwrap().clone(); drop(s); match crate::core::playlist::switch_playlist(&mf, &name){ Ok(Some(_))=>{} Ok(None)=>{println!("Not found: {}",name);return;} Err(e)=>{println!("Error: {}",e);return;} } let s=state.lock().unwrap();refresh_playlists_cache(&s);sync_current_playlist(&s);*s.current_index.lock().unwrap()=None;println!("Switched to '{}'.",name); }
 
-fn import(state: &Arc<Mutex<ServerState>>) { let s=state.lock().unwrap(); let mf=s.music_folder.lock().unwrap().clone(); if mf.is_empty(){println!("No music folder. Use 'open dir'.");return;} match crate::fs_cmd::list_audio_files_sync(&mf){Ok(files)=>{println!("{} files in {}. Enter n/n-r/all:",files.len(),mf);for(i,f) in files.iter().enumerate().take(20){let n=std::path::Path::new(f).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default();println!("  {}. {}",i+1,n);}if files.len()>20{println!("  ... and {} more",files.len()-20);}print!("> ");let _=io::stdout().flush();let mut in_=String::new();io::stdin().read_line(&mut in_).ok();let idxs=parse_range(&in_,files.len());if idxs.is_empty(){println!("None selected.");return;}let sel:Vec<String>=idxs.iter().map(|&i|files[i-1].clone()).collect();let cur=s.current_pl.lock().unwrap().clone();let mut pls=s.playlists.lock().unwrap();if let Some(p)=pls.iter_mut().find(|p|p.name==cur){for f in &sel{if !p.tracks.contains(f){p.tracks.push(f.clone());}}}save_playlists(&s);sync_current_playlist(&s);println!("Imported {} to '{}'.",sel.len(),cur);}Err(e)=>println!("Error: {}",e),} }
+fn import(state: &Arc<Mutex<ServerState>>) { let s=state.lock().unwrap(); let mf=s.music_folder.lock().unwrap().clone(); if mf.is_empty(){println!("No music folder. Use 'open dir'.");return;} match crate::core::files::list_audio_files(&mf){Ok(files)=>{println!("{} files in {}. Enter n/n-r/all:",files.len(),mf);for(i,f) in files.iter().enumerate().take(20){let n=std::path::Path::new(f).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default();println!("  {}. {}",i+1,n);}if files.len()>20{println!("  ... and {} more",files.len()-20);}print!("> ");let _=io::stdout().flush();let mut in_=String::new();io::stdin().read_line(&mut in_).ok();let idxs=parse_range(&in_,files.len());if idxs.is_empty(){println!("None selected.");return;}let sel:Vec<String>=idxs.iter().map(|&i|files[i-1].clone()).collect();let cur=s.current_pl.lock().unwrap().clone();drop(s);if let Err(e)=crate::core::playlist::add_tracks(&mf, &cur, &sel){println!("Error: {}",e);return;}let s=state.lock().unwrap();refresh_playlists_cache(&s);sync_current_playlist(&s);println!("Imported {} to '{}'.",sel.len(),cur);}Err(e)=>println!("Error: {}",e),} }
 
 fn track(state: &Arc<Mutex<ServerState>>, args: &[&str]) { let s=state.lock().unwrap(); let pl=s.playlist.lock().unwrap().clone(); if pl.is_empty(){println!("Playlist empty.");return;} let sub=args.first().copied().unwrap_or(""); let rest=args.get(1..).unwrap_or(&[]);
 let select=||->Vec<usize>{for(i,p) in pl.iter().enumerate(){let n=std::path::Path::new(p).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default();println!("  {}. {}",i+1,n);}print!("Select (n/n-r/all): ");let _=io::stdout().flush();let mut in_=String::new();io::stdin().read_line(&mut in_).ok();parse_range(&in_,pl.len())};
 let sel_pl=|s:&ServerState|->Option<String>{let pls=s.playlists.lock().unwrap();if pls.is_empty(){return None;}for(i,p) in pls.iter().enumerate(){println!("  {}. {}",i+1,p.name);}print!("Select playlist: ");let _=io::stdout().flush();let mut in_=String::new();io::stdin().read_line(&mut in_).ok();in_.trim().parse::<usize>().ok().and_then(|n|pls.get(n-1).map(|p|p.name.clone()))};
-match sub { ""|"info"=>{ if rest.is_empty(){let ts=select();for &i in ts.iter().filter(|&&i|i>=1&&i<=pl.len()){if let Ok(m)=crate::metadata_cmd::read_metadata_sync(&pl[i-1]){println!("\n  {}. {}  [{}]",i,m.title,format_time(m.duration));}}}else if let Ok(n)=rest[0].parse::<usize>(){if n>=1&&n<=pl.len(){info(state);}else{println!("Invalid number.");}}else{let q=rest.join(" ").to_lowercase();let ms:Vec<usize>=pl.iter().enumerate().filter(|(_,p)|std::path::Path::new(p).file_name().map(|n|n.to_string_lossy().to_lowercase()).unwrap_or_default().contains(&q)).map(|(i,_)|i+1).collect();if ms.is_empty(){println!("No match.");}else if ms.len()==1{if let Ok(m)=crate::metadata_cmd::read_metadata_sync(&pl[ms[0]-1]){println!("\n  {}",m.title);}}else{for &mi in &ms{println!("  {}. {}",mi,std::path::Path::new(&pl[mi-1]).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default());}}} }
+ match sub { ""|"info"=>{ if rest.is_empty(){let ts=select();for &i in ts.iter().filter(|&&i|i>=1&&i<=pl.len()){if let Ok(m)=crate::core::metadata::read_metadata(&pl[i-1]){println!("\n  {}. {}  [{}]",i,m.title,format_time(m.duration.unwrap_or(0.0)));}}}else if let Ok(n)=rest[0].parse::<usize>(){if n>=1&&n<=pl.len(){info(state);}else{println!("Invalid number.");}}else{let q=rest.join(" ").to_lowercase();let ms:Vec<usize>=pl.iter().enumerate().filter(|(_,p)|std::path::Path::new(p).file_name().map(|n|n.to_string_lossy().to_lowercase()).unwrap_or_default().contains(&q)).map(|(i,_)|i+1).collect();if ms.is_empty(){println!("No match.");}else if ms.len()==1{if let Ok(m)=crate::core::metadata::read_metadata(&pl[ms[0]-1]){println!("\n  {}",m.title);}}else{for &mi in &ms{println!("  {}. {}",mi,std::path::Path::new(&pl[mi-1]).file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default());}}} }
 "delete"=>{ let ts=select(); if ts.is_empty(){return;} if let Some(pn)=sel_pl(&s){let mut pls=s.playlists.lock().unwrap();if let Some(p)=pls.iter_mut().find(|p|p.name==pn){let sel_p:Vec<String>=ts.iter().filter_map(|&i|if i>=1&&i<=pl.len(){Some(pl[i-1].clone())}else{None}).collect();let before=p.tracks.len();p.tracks.retain(|t|!sel_p.contains(t));save_playlists(&s);if pn==*s.current_pl.lock().unwrap(){sync_current_playlist(&s);}println!("Removed {} from '{}'.",before-p.tracks.len(),pn);}} }
 "move"=>{ let ts=select(); if ts.is_empty(){return;} if let Some(pn)=sel_pl(&s){let sel_p:Vec<String>=ts.iter().filter_map(|&i|if i>=1&&i<=pl.len(){Some(pl[i-1].clone())}else{None}).collect();let dp=s.playlists.lock().unwrap().first().map(|p|p.name.clone()).unwrap_or_default();let mut pls=s.playlists.lock().unwrap();for p in pls.iter_mut(){if p.name!=pn&&p.name!=dp{p.tracks.retain(|t|!sel_p.contains(t));}}if let Some(t)=pls.iter_mut().find(|p|p.name==pn){for f in &sel_p{if !t.tracks.contains(f){t.tracks.push(f.clone());}}}save_playlists(&s);println!("Moved {} track(s).",sel_p.len());} }
 "copy"=>{ let ts=select(); if ts.is_empty(){return;} if let Some(pn)=sel_pl(&s){let sel_p:Vec<String>=ts.iter().filter_map(|&i|if i>=1&&i<=pl.len(){Some(pl[i-1].clone())}else{None}).collect();let mut pls=s.playlists.lock().unwrap();if let Some(t)=pls.iter_mut().find(|p|p.name==pn){for f in &sel_p{if !t.tracks.contains(f){t.tracks.push(f.clone());}}}save_playlists(&s);println!("Copied {} to '{}'.",sel_p.len(),pn);} }
