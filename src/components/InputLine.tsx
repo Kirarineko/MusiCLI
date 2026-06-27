@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import { useTerminal, filterItems, getVisibleIdxFn } from '../contexts/TerminalContext';
 import { usePlayer } from '../contexts/PlayerContext';
 import { usePlaylists } from '../contexts/PlaylistContext';
-import { useSettings } from '../contexts/SettingsContext';
+import { useSettings, getStoredSettings } from '../contexts/SettingsContext';
 import { getCommand, getAllCommandNames } from '../commands/registry';
 import { subCompletions } from '../commands/completions';
 import { setCommandContext, type CommandContext } from '../commands/handlers/index';
@@ -189,7 +189,7 @@ export function InputLine() {
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Seek mode — arrow keys seek, any other key exits
     if (terminal.seekMode) {
-      const s = settings.settings;
+      const s = getStoredSettings();
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         const step = s.seekStep || 5;
@@ -363,7 +363,7 @@ export function InputLine() {
   }, [terminal, executeCommand, handleSelectConfirm]);
 
   const placeholder = terminal.seekMode
-    ? t('seekModeHint', { step: settings.settings.seekStep || 5 })
+    ? t('seekModeHint', { step: getStoredSettings().seekStep || 5 })
     : terminal.selectMode
     ? t('selectHint')
     : '';
