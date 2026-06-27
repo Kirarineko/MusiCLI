@@ -193,6 +193,14 @@ impl AudioEngine {
         self.state.duration_secs.load()
     }
 
+    pub fn is_playing(&self) -> bool {
+        self.state.playing.load(Ordering::Relaxed)
+    }
+
+    pub fn get_volume(&self) -> u32 {
+        self.state.volume.load(Ordering::Relaxed)
+    }
+
     pub fn set_mode(&mut self, mode: AudioMode) {
         let was_playing = self.state.playing.load(Ordering::Relaxed);
         let path = self.current_path.clone();

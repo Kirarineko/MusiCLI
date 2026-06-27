@@ -1,8 +1,10 @@
 use std::fs;
 use std::path::Path;
+#[cfg(feature = "gui")]
 use tauri::command;
 use walkdir::WalkDir;
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn find_lrc(mp3_path: String, root_dir: String) -> Result<Option<String>, String> {
     let base = Path::new(&mp3_path)
@@ -33,6 +35,7 @@ pub async fn find_lrc(mp3_path: String, root_dir: String) -> Result<Option<Strin
     Ok(None)
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn read_lrc_offsets(lrc_dir: String) -> Result<serde_json::Value, String> {
     let path = Path::new(&lrc_dir).join("offsets.json");
@@ -45,6 +48,7 @@ pub async fn read_lrc_offsets(lrc_dir: String) -> Result<serde_json::Value, Stri
     Ok(val)
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn write_lrc_offset(
     lrc_dir: String,
@@ -72,4 +76,33 @@ pub async fn write_lrc_offset(
 
     let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// Sync version for headless/server mode.
+pub fn find_lrc_sync(mp3_path: &str, root_dir: &str) -> Result<Option<String>, String> {
+    let base = Path::new(mp3_path)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase();
+    let target = format!("{}.lrc", base);
+
+    for entry in WalkDir::new(root_dir)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            if e.file_type().is_dir() && (name.starts_with('.') || name == "node_modules") {
+                return false;
+            }
+            true
+        })
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_file() {
+            if entry.file_name().to_string_lossy().to_lowercase() == target {
+                return Ok(Some(entry.path().to_string_lossy().to_string()));
+            }
+        }
+    }
+    Ok(None)
 }

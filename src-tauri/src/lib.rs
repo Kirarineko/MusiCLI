@@ -1,22 +1,34 @@
+#[cfg(feature = "gui")]
 mod dialog_cmd;
 mod fs_cmd;
 mod metadata_cmd;
 mod config_cmd;
 mod lrc_cmd;
 mod zip_cmd;
+#[cfg(feature = "gui")]
 mod lyrics_cmd;
+#[cfg(feature = "gui")]
 mod window_cmd;
 pub mod audio;
+pub mod lrc_parser;
+#[cfg(feature = "server")]
+pub mod server;
+pub mod server_state;
 
+#[cfg(feature = "gui")]
 use std::sync::Mutex;
+#[cfg(feature = "gui")]
 use tauri::Manager;
+#[cfg(feature = "gui")]
 use audio::engine::AudioEngine;
 
+#[cfg(feature = "gui")]
 pub struct AppState {
     pub audio_engine: Mutex<AudioEngine>,
 }
 
-pub fn run() {
+#[cfg(feature = "gui")]
+pub fn run_gui() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
@@ -25,7 +37,6 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if window.label() == "main" {
-                    // Destroy floating lyrics window when main window closes.
                     if let Some(lyrics) = window.app_handle().get_webview_window("lyrics") {
                         let _ = lyrics.destroy();
                     }

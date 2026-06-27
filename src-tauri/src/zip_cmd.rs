@@ -1,9 +1,11 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
+#[cfg(feature = "gui")]
 use tauri::command;
 use zip::write::SimpleFileOptions;
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn create_zip(source_dir: String, dest_zip: String) -> Result<(), String> {
     let source = Path::new(&source_dir);
@@ -50,6 +52,7 @@ pub async fn create_zip(source_dir: String, dest_zip: String) -> Result<(), Stri
     Ok(())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn extract_zip(zip_path: String, dest_dir: String) -> Result<(), String> {
     let path = Path::new(&zip_path);

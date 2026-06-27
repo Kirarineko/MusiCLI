@@ -4,8 +4,9 @@ pub mod output;
 pub mod resampler;
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "gui")]
 use tauri::command;
-
+#[cfg(feature = "gui")]
 use crate::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,8 +35,9 @@ impl AudioMode {
     }
 }
 
-// --- Tauri Commands ---
+// --- Tauri Commands (GUI only) ---
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn load_track(
     state: tauri::State<'_, AppState>,
@@ -45,6 +47,7 @@ pub async fn load_track(
     engine.load_track(&path)
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn play(
     state: tauri::State<'_, AppState>,
@@ -54,6 +57,7 @@ pub async fn play(
     engine.play(&path)
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn pause(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let engine = state.audio_engine.lock().unwrap();
@@ -61,6 +65,7 @@ pub async fn pause(state: tauri::State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn stop(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut engine = state.audio_engine.lock().unwrap();
@@ -68,6 +73,7 @@ pub async fn stop(state: tauri::State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn seek(
     state: tauri::State<'_, AppState>,
@@ -78,6 +84,7 @@ pub async fn seek(
     Ok(())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn set_volume(
     state: tauri::State<'_, AppState>,
@@ -88,18 +95,21 @@ pub async fn set_volume(
     Ok(())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn get_position(state: tauri::State<'_, AppState>) -> Result<f64, String> {
     let engine = state.audio_engine.lock().unwrap();
     Ok(engine.get_position())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn get_duration(state: tauri::State<'_, AppState>) -> Result<f64, String> {
     let engine = state.audio_engine.lock().unwrap();
     Ok(engine.get_duration())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn set_audio_mode(
     state: tauri::State<'_, AppState>,
@@ -122,12 +132,14 @@ pub async fn set_audio_mode(
     Ok(format!("Audio mode set to: {}", audio_mode))
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn get_audio_mode(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let engine = state.audio_engine.lock().unwrap();
     Ok(engine.get_mode().to_string())
 }
 
+#[cfg(feature = "gui")]
 #[command]
 pub async fn list_audio_devices() -> Result<Vec<String>, String> {
     use cpal::traits::{DeviceTrait, HostTrait};
