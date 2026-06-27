@@ -174,31 +174,10 @@ fn spawn_status(st: Arc<Mutex<ServerState>>, mut printer: impl ExternalPrinter +
             let bar = bar_str(pos, dur, s.progress_width, s.progress_filled, s.progress_empty);
             let tw = term_width().saturating_sub(2);
             let status = format!("  {} {}  {}  [{}/{}]  vol: {}", mode, track, bar, format_time(pos), format_time(dur), engine.get_volume());
-            let mut output = truncate_line(&status, tw);
-            let ll = s.lrc_lines.lock().unwrap();
-            if *s.lrc_enabled.lock().unwrap() && !ll.is_empty() {
-                let ci = crate::lrc_parser::get_current_line_idx(&ll, pos);
-                if ci >= 0 {
-                    output.push('\n');
-                    output.push_str("  ");
-                    output.push_str(&truncate_line(&format!("\x1B[33m♪\x1B[0m {}", ll[ci as usize].text), tw.saturating_sub(2)));
-                    let nc = *s.lrc_next_count.lock().unwrap();
-                    for i in 1..=nc.min(ll.len().saturating_sub(ci as usize + 1)) {
-                        let idx = ci as usize + i;
-                        if idx < ll.len() {
-                            output.push('\n');
-                            output.push_str("    ");
-                            output.push_str(&truncate_line(&ll[idx].text, tw.saturating_sub(4)));
-                        }
-                    }
-                }
-            }
-            drop(ll); drop(engine); drop(s);
+            let output = truncate_line(&status, tw);
+            drop(engine); drop(s);
             if (pos - last_pos).abs() > 0.5 {
                 last_pos = pos;
-                // Simple \r overwrite — no cursor movement, no line clearing.
-                // Lines may stack when lyrics toggle on, but this avoids
-                // \x1B[J erasing terminal history and cursor drift bugs.
                 let _ = printer.print(format!("\r{}", output));
             }
         }
