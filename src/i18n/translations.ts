@@ -46,7 +46,7 @@ export const dict: Record<Lang, Dict> = {
     helpColor: 'Set color (text/accent/bg/line/dim/bright)',
     helpColors: 'Show current color settings',
     helpBg: 'Set background image',
-    helpBgClear: 'Remove background image',
+    helpAudio: 'Audio mode and device management',
     helpBlur: 'Set background blur (0-50)',
     helpReset: 'Reset all colors to defaults',
     helpHelp: 'Show this help',
@@ -252,8 +252,7 @@ export const dict: Record<Lang, Dict> = {
     syncThemeImported: 'Theme "{name}" imported from sync file.',
     plUpdatedAt: 'Updated',
     plSharer: 'Shared by',
-    completionAll: 'Available commands:',
-    completionMatches: "Matches for '{prefix}':",
+
     completionTitle: 'Completions:',
   },
   zh: {
@@ -282,7 +281,7 @@ export const dict: Record<Lang, Dict> = {
     helpColor: '设置颜色 (text/accent/bg/line/dim/bright)',
     helpColors: '显示当前颜色设置',
     helpBg: '设置背景图片',
-    helpBgClear: '清除背景图片',
+    helpAudio: '音频模式和设备管理',
     helpBlur: '设置背景模糊 (0-50)',
     helpReset: '恢复默认颜色',
     helpHelp: '显示帮助',
@@ -488,8 +487,7 @@ export const dict: Record<Lang, Dict> = {
     syncThemeImported: '主题 "{name}" 已从同步文件导入。',
     plUpdatedAt: '更新时间',
     plSharer: '分享者',
-    completionAll: '可用命令：',
-    completionMatches: "匹配 '{prefix}' 的命令：",
+
     completionTitle: '补全：',
   },
   ja: {
@@ -518,7 +516,7 @@ export const dict: Record<Lang, Dict> = {
     helpColor: '色を設定 (text/accent/bg/line/dim/bright)',
     helpColors: '現在の色設定を表示',
     helpBg: '背景画像を設定',
-    helpBgClear: '背景画像を削除',
+    helpAudio: 'オーディオモードとデバイス管理',
     helpBlur: '背景のぼかしを設定 (0-50)',
     helpReset: 'すべての色をデフォルトに戻す',
     helpHelp: 'ヘルプを表示',
@@ -724,8 +722,7 @@ export const dict: Record<Lang, Dict> = {
     syncThemeImported: 'テーマ "{name}" をインポートしました。',
     plUpdatedAt: '更新日時',
     plSharer: '共有者',
-    completionAll: '使用可能なコマンド：',
-    completionMatches: "'{prefix}' に一致するコマンド：",
+
     completionTitle: '補完：',
   },
 };

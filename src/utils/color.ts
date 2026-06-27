@@ -30,6 +30,4 @@ export function darken(color: string, factor: number): string {
   return formatColor(p);
 }
 
-export function isValidHexOrRgb(color: string): boolean {
-  return /^#[0-9a-fA-F]{3,8}$/.test(color) || /^rgba?\s*\(/i.test(color);
-}
+

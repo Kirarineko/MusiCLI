@@ -11,12 +11,6 @@ export function escapeHtml(str: string): string {
   return div.innerHTML;
 }
 
-export function parseCommand(raw: string): { cmdName: string; args: string[] } | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const parts = trimmed.split(/\s+/);
-  return { cmdName: parts[0].toLowerCase(), args: parts.slice(1) };
-}
 
 export function getFileName(filePath: string): string {
   return filePath.split(/[/\\]/).pop() || filePath;

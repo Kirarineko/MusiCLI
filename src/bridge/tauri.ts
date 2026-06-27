@@ -144,13 +144,6 @@ export const tauriBridge: IBridge = {
     return () => { unlisten?.(); };
   },
 
-  onLyricsVisibilityChanged(callback: (data: { visible: boolean }) => void): () => void {
-    let unlisten: UnlistenFn | null = null;
-    listen<{ visible: boolean }>('lyrics:visibility-changed', (event) => {
-      callback(event.payload);
-    }).then(fn => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  },
 
   async readConfig(musicFolder: string, key: string) {
     return await invoke('read_config', { musicFolder, key });
@@ -162,9 +155,6 @@ export const tauriBridge: IBridge = {
       .catch(e => ({ error: String(e) }));
   },
 
-  async selectSaveDir() {
-    return await open({ directory: true, title: 'Select Export Directory' });
-  },
 
   async selectSyncFile() {
     return await open({

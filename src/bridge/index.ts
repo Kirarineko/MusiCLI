@@ -27,10 +27,10 @@ export interface IBridge {
   sendLyricsTheme(data: LyricsThemeData): void;
   onLyricsUpdate(callback: (data: LyricsUpdateData) => void): () => void;
   onLyricsTheme(callback: (data: LyricsThemeData) => void): () => void;
-  onLyricsVisibilityChanged(callback: (data: { visible: boolean }) => void): () => void;
+
   readConfig(musicFolder: string, key: string): Promise<any | null | { error: string }>;
   writeConfig(musicFolder: string, key: string, data: any): Promise<{ success?: boolean; error?: string }>;
-  selectSaveDir(): Promise<string | null>;
+
   selectSyncFile(): Promise<string | null>;
   copyFile(src: string, dest: string): Promise<{ success?: boolean; error?: string }>;
   mkdir(dir: string): Promise<{ success?: boolean; error?: string }>;
