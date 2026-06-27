@@ -65,3 +65,50 @@ pub fn write_lrc_offset(lrc_dir: &str, track_name: &str, offset_ms: i64) -> Resu
     let json = serde_json::to_string_pretty(&offsets).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_read_lrc_offsets_empty() {
+        let dir = TempDir::new().unwrap();
+        let offsets = read_lrc_offsets(dir.path().to_str().unwrap()).unwrap();
+        assert!(offsets.is_empty());
+    }
+
+    #[test]
+    fn test_write_and_read_lrc_offset() {
+        let dir = TempDir::new().unwrap();
+        let dir_str = dir.path().to_str().unwrap();
+
+        write_lrc_offset(dir_str, "track1", 1500).unwrap();
+        let offsets = read_lrc_offsets(dir_str).unwrap();
+        assert_eq!(offsets.get("track1"), Some(&1500));
+    }
+
+    #[test]
+    fn test_remove_lrc_offset() {
+        let dir = TempDir::new().unwrap();
+        let dir_str = dir.path().to_str().unwrap();
+
+        write_lrc_offset(dir_str, "track1", 500).unwrap();
+        write_lrc_offset(dir_str, "track1", 0).unwrap();
+        let offsets = read_lrc_offsets(dir_str).unwrap();
+        assert!(!offsets.contains_key("track1"));
+    }
+
+    #[test]
+    fn test_multiple_offsets() {
+        let dir = TempDir::new().unwrap();
+        let dir_str = dir.path().to_str().unwrap();
+
+        write_lrc_offset(dir_str, "a", 100).unwrap();
+        write_lrc_offset(dir_str, "b", 200).unwrap();
+        let offsets = read_lrc_offsets(dir_str).unwrap();
+        assert_eq!(offsets.len(), 2);
+        assert_eq!(offsets.get("a"), Some(&100));
+        assert_eq!(offsets.get("b"), Some(&200));
+    }
+}

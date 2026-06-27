@@ -53,6 +53,22 @@ pub fn mkdir(path: &str) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|e| e.to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_audio_file() {
+        assert!(is_audio_file(Path::new("song.mp3")));
+        assert!(is_audio_file(Path::new("song.flac")));
+        assert!(is_audio_file(Path::new("song.wav")));
+        assert!(is_audio_file(Path::new("song.MP3")));
+        assert!(!is_audio_file(Path::new("song.txt")));
+        assert!(!is_audio_file(Path::new("song")));
+        assert!(!is_audio_file(Path::new("song.jpg")));
+    }
+}
+
 pub fn read_config(music_folder: &str, key: &str) -> Result<Option<serde_json::Value>, String> {
     let path = config_path(music_folder).join(format!("{}.json", key));
     if !path.exists() {

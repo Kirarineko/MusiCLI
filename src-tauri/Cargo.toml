@@ -65,3 +65,6 @@ axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
 rustyline = { version = "15", optional = true }
 clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
