@@ -6,7 +6,9 @@ use std::path::Path;
 pub struct Playlist {
     pub name: String,
     pub desc: String,
+    #[serde(alias = "createdAt")]
     pub created_at: String,
+    #[serde(alias = "updatedAt")]
     pub updated_at: Option<String>,
     pub sharer: Option<String>,
     pub tracks: Vec<String>,
@@ -22,7 +24,9 @@ pub struct PlaylistInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PlaylistsFile {
+    #[serde(alias = "pls")]
     playlists: std::collections::HashMap<String, Playlist>,
+    #[serde(alias = "cur")]
     current: String,
 }
 

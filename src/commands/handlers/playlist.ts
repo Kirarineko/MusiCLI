@@ -4,6 +4,7 @@ import { t } from '../../i18n';
 import { getBridge } from '../../bridge';
 import { getStoredSettings } from '../../contexts/SettingsContext';
 import { escapeHtml, getFileName } from '../../utils/format';
+import { refreshPlaylists } from '../../configStore';
 import { fuzzySearch } from '../../utils/fuzzy';
 import { hasError } from '../../utils/guards';
 import type { InteractiveItem } from '../../types';
@@ -311,6 +312,19 @@ export function registerPlaylistCommands() {
       c.printRaw('  ' + t('plCreated2') + ': ' + new Date(info.createdAt).toLocaleString());
       if (info.updatedAt) c.printRaw('  ' + t('plUpdatedAt') + ': ' + new Date(info.updatedAt).toLocaleString());
       if (info.sharer) c.printRaw('  ' + t('plSharer') + ': ' + info.sharer);
+    } else if (sub === 'refresh' || sub === 'reload') {
+      refreshPlaylists().then(ok => {
+        if (ok) {
+          c.printLine(t('plRefreshOk'), 'success');
+          // Reload current playlist tracks from file into flat queue
+          const data = c.getCurrentPlaylist();
+          if (data && data.tracks.length > 0) {
+            c.replaceCurrentTracks(data.tracks);
+          }
+        } else {
+          c.printLine(t('plRefreshFail'), 'error');
+        }
+      });
     } else {
       c.printLine(t('unknownCmd', { cmd: escapeHtml('pl ' + sub) }), 'error');
     }

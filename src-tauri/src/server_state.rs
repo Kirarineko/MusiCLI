@@ -84,9 +84,28 @@ pub fn init_global(state: Arc<Mutex<ServerState>>) {
 
 pub fn set_music_folder(path: String) {
     if let Some(state) = GLOBAL_STATE.get() {
-        *state.lock().unwrap().music_folder.lock().unwrap() = path;
-        crate::core::files::persist_music_folder(
-            &state.lock().unwrap().music_folder.lock().unwrap()
-        );
+        *state.lock().unwrap().music_folder.lock().unwrap() = path.clone();
+        crate::core::files::persist_music_folder(&path);
+        let _ = load_current_playlist(&state.lock().unwrap());
+    }
+}
+
+pub fn load_current_playlist(state: &ServerState) -> Result<usize, String> {
+    let mf = state.music_folder.lock().unwrap().clone();
+    if mf.is_empty() {
+        return Ok(0);
+    }
+    match crate::core::playlist::get_current_playlist_name(&mf) {
+        Ok(name) => {
+            if let Ok(Some(pl)) = crate::core::playlist::get_playlist(&mf, &name) {
+                let len = pl.tracks.len();
+                *state.playlist.lock().unwrap() = pl.tracks;
+                *state.current_pl.lock().unwrap() = name;
+                *state.current_index.lock().unwrap() = None;
+                return Ok(len);
+            }
+            Ok(0)
+        }
+        Err(_) => Ok(0),
     }
 }

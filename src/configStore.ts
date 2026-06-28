@@ -151,29 +151,11 @@ let _themes: Theme[] = (() => {
 })();
 
 let _playlists: Record<string, Playlist> = (() => {
-  const stored = loadFromLs<Record<string, Playlist>>(LS_KEYS.playlists, {});
-  if (Object.keys(stored).length > 0) return stored;
   const def = defaultPlaylistsData();
-  try {
-    localStorage.setItem(LS_KEYS.playlists, JSON.stringify(def.pls));
-    localStorage.setItem(LS_KEYS.currentPl, def.cur);
-  } catch { /* noop */ }
   return def.pls;
 })();
 
-let _currentPlName: string = (() => {
-  try {
-    const cur = localStorage.getItem(LS_KEYS.currentPl);
-    if (cur && _playlists[cur]) return cur;
-    // Fallback to first playlist
-    const first = Object.keys(_playlists)[0];
-    if (first) {
-      localStorage.setItem(LS_KEYS.currentPl, first);
-      return first;
-    }
-  } catch { /* noop */ }
-  return '';
-})();
+let _currentPlName: string = defaultPlaylistsData().cur;
 
 let _lang: Lang = (() => {
   try {
@@ -188,7 +170,6 @@ if (!_currentPlName || !_playlists[_currentPlName]) {
   const first = Object.keys(_playlists)[0];
   if (first) {
     _currentPlName = first;
-    try { localStorage.setItem(LS_KEYS.currentPl, first); } catch { /* noop */ }
   }
 }
 
@@ -198,8 +179,9 @@ async function readConfigFile<T>(key: ConfigKey, fallback: T): Promise<T> {
   const mf = getMusicFolder();
   if (!mf || !isBridgeAvailable()) {
     // No music folder set or no IPC — use localStorage as source of truth
-    const lsKey = key === 'playlists' ? LS_KEYS.playlists
-                : key === 'settings' ? LS_KEYS.settings
+    // For playlists: return fallback (empty Default) since we no longer use localStorage
+    if (key === 'playlists') return fallback;
+    const lsKey = key === 'settings' ? LS_KEYS.settings
                 : key === 'themes' ? LS_KEYS.themes
                 : LS_KEYS.lang;
     return loadFromLs<T>(lsKey, fallback);
@@ -208,9 +190,9 @@ async function readConfigFile<T>(key: ConfigKey, fallback: T): Promise<T> {
   try {
     const result = await getBridge().readConfig(mf, key);
     if (result === null) {
-      // File doesn't exist yet — use localStorage
-      const lsKey = key === 'playlists' ? LS_KEYS.playlists
-                  : key === 'settings' ? LS_KEYS.settings
+      // File doesn't exist yet
+      if (key === 'playlists') return fallback;
+      const lsKey = key === 'settings' ? LS_KEYS.settings
                   : key === 'themes' ? LS_KEYS.themes
                   : LS_KEYS.lang;
       return loadFromLs<T>(lsKey, fallback);
@@ -227,12 +209,10 @@ async function readConfigFile<T>(key: ConfigKey, fallback: T): Promise<T> {
 }
 
 async function writeConfigFile(key: ConfigKey, data: unknown): Promise<void> {
-  // Always write to localStorage first (sync cache)
+  // Always write to localStorage first (sync cache) — except playlists
   try {
     if (key === 'playlists') {
-      const d = data as { pls: Record<string, Playlist>; cur: string };
-      localStorage.setItem(LS_KEYS.playlists, JSON.stringify(d.pls));
-      localStorage.setItem(LS_KEYS.currentPl, d.cur);
+      // Playlists are file-only now, no localStorage
     } else if (key === 'settings') {
       localStorage.setItem(LS_KEYS.settings, JSON.stringify(data));
     } else if (key === 'themes') {
@@ -327,6 +307,28 @@ export async function initConfig(): Promise<AppSettings | null> {
     _playlists = playlists.pls;
     _currentPlName = playlists.cur || Object.keys(playlists.pls)[0];
   }
+  // Migration: merge localStorage playlists into file (one-time)
+  try {
+    const legacyPls = localStorage.getItem(LS_KEYS.playlists);
+    if (legacyPls) {
+      const pls = JSON.parse(legacyPls) as Record<string, Playlist>;
+      let merged = false;
+      for (const [name, pl] of Object.entries(pls)) {
+        if (!_playlists[name]) {
+          _playlists[name] = pl;
+          merged = true;
+        }
+      }
+      const legacyCur = localStorage.getItem(LS_KEYS.currentPl);
+      if (_currentPlName === 'Default' && legacyCur && _playlists[legacyCur]) {
+        _currentPlName = legacyCur;
+      }
+      if (merged) {
+        await writeConfigFile('playlists', { pls: _playlists, cur: _currentPlName });
+        console.log('[configStore] merged localStorage playlists into file');
+      }
+    }
+  } catch { /* ignore */ }
 
   const validLangs = ['en', 'zh', 'ja'];
   if (typeof lang === 'string' && validLangs.includes(lang)) {
@@ -337,8 +339,6 @@ export async function initConfig(): Promise<AppSettings | null> {
   try {
     localStorage.setItem(LS_KEYS.settings, JSON.stringify(_settings));
     localStorage.setItem(LS_KEYS.themes, JSON.stringify(_themes));
-    localStorage.setItem(LS_KEYS.playlists, JSON.stringify(_playlists));
-    localStorage.setItem(LS_KEYS.currentPl, _currentPlName);
     localStorage.setItem(LS_KEYS.lang, _lang);
   } catch { /* ignore */ }
 
@@ -372,6 +372,23 @@ export async function savePlaylists(pls: Record<string, Playlist>, cur: string):
   _playlists = pls;
   _currentPlName = cur;
   await writeConfigFile('playlists', { pls, cur });
+}
+
+export async function refreshPlaylists(): Promise<boolean> {
+  const mf = getMusicFolder();
+  if (!mf || !isBridgeAvailable()) return false;
+  try {
+    const result = await getBridge().readConfig(mf, 'playlists');
+    if (result && !hasError(result)) {
+      const data = result as { pls: Record<string, Playlist>; cur: string };
+      if (data.pls && Object.keys(data.pls).length > 0) {
+        _playlists = data.pls;
+        _currentPlName = data.cur || Object.keys(data.pls)[0];
+        return true;
+      }
+    }
+  } catch { /* ignore */ }
+  return false;
 }
 
 export async function saveLang(lang: Lang): Promise<void> {

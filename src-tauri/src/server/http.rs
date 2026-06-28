@@ -5,6 +5,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use tower_http::cors::CorsLayer;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -18,20 +19,21 @@ use crate::server_state::ServerState as SState;
 
 type SharedState = Arc<Mutex<SState>>;
 
-pub fn start_in_background(state: Arc<Mutex<SState>>, port: u16) -> u16 {
+pub fn start_in_background(state: Arc<Mutex<SState>>, bind: &str, port: u16) -> u16 {
     // Bind a temporary socket to discover the actual port, then release it.
     // The real listener is bound inside the tokio runtime to avoid
     // tokio's from_std compatibility issues on Linux.
-    let probe = TcpListener::bind(format!("127.0.0.1:{}", port))
+    let probe = TcpListener::bind(format!("{}:{}", bind, port))
         .expect("Failed to bind HTTP server probe");
     let actual_port = probe.local_addr().unwrap().port();
     drop(probe);
 
+    let bind_addr = bind.to_string();
     let s = state.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         rt.block_on(async {
-            let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", actual_port))
+            let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind_addr, actual_port))
                 .await
                 .expect("Failed to bind HTTP server");
             axum::serve(listener, build_router(s)).await.expect("HTTP server error");
@@ -59,6 +61,7 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/playlists", get(list_playlists).post(create_playlist))
         .route("/playlists/single", get(get_playlist_single).delete(delete_playlist_single).put(update_playlist_single))
         .route("/playlists/switch", post(switch_playlist))
+        .route("/playlists/refresh", post(refresh_playlist))
         .route("/metadata", get(metadata))
         .route("/files", get(list_files))
         .route("/devices", get(devices))
@@ -73,6 +76,7 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/sync/import", post(import_sync))
         .route("/folder", put(set_folder))
         .with_state(state)
+        .layer(CorsLayer::permissive())
 }
 
 #[derive(Serialize)]
@@ -749,24 +753,31 @@ async fn switch_playlist(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let s = state.lock().unwrap();
     let mf = s.music_folder.lock().unwrap().clone();
-    let pl = crate::core::playlist::switch_playlist(&mf, &req.name)
+    crate::core::playlist::switch_playlist(&mf, &req.name)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    match pl {
-        Some(playlist) => {
-            *s.playlist.lock().unwrap() = playlist.tracks.clone();
-            *s.current_index.lock().unwrap() = None;
-            let len = playlist.tracks.len();
-            let mut engine = s.audio_engine.lock().unwrap();
-            engine.stop();
-            // Let engine stop naturally — don't auto-play
-            drop(engine);
+    match crate::server_state::load_current_playlist(&s) {
+        Ok(len) if len > 0 => {
+            let _engine = s.audio_engine.lock().unwrap();
             Ok(Json(serde_json::json!({
                 "switched": req.name,
                 "track_count": len,
             })))
         }
-        None => Err((StatusCode::NOT_FOUND, format!("Playlist '{}' not found", req.name))),
+        Ok(_) => Err((StatusCode::NOT_FOUND, format!("Playlist '{}' not found or empty", req.name))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
+}
+
+async fn refresh_playlist(
+    state: AxumState<SharedState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let count = crate::server_state::load_current_playlist(&s)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({
+        "refreshed": true,
+        "track_count": count,
+    })))
 }
 
 // ── Folder ───────────────────────────────────────────────────────────
@@ -787,5 +798,6 @@ async fn set_folder(
     let s = state.lock().unwrap();
     *s.music_folder.lock().unwrap() = req.path.clone();
     crate::core::files::persist_music_folder(&req.path);
+    let _ = crate::server_state::load_current_playlist(&s);
     Ok(StatusCode::OK)
 }

@@ -98,13 +98,12 @@ impl AudioEngine {
     }
 
     pub fn play(&mut self, path: &str) -> Result<(), String> {
-        if path == self.current_path && self.stream.is_some() {
-            if let Some(ref stream) = self.stream {
-                stream.play().map_err(|e| e.to_string())?;
-                self.state.playing.store(true, Ordering::Relaxed);
-                return Ok(());
-            }
-        }
+        // Save position when resuming the same track (so we don't restart from 0).
+        let saved_pos = if path == self.current_path && self.stream.is_some() {
+            self.get_position()
+        } else {
+            0.0
+        };
 
         self.stop_internal();
         self.current_path = path.to_string();
@@ -119,11 +118,21 @@ impl AudioEngine {
         self.state.sample_rate.store(device_sr, Ordering::Relaxed);
         self.state.channels.store(channels, Ordering::Relaxed);
         self.state.duration_secs.store(duration);
-        self.state
-            .position_samples
-            .store(0, Ordering::Relaxed);
-        self.state.seek_request.store(-1, Ordering::Relaxed);
         self.state.stop_flag.store(false, Ordering::Relaxed);
+
+        // Restore position when resuming the same track.
+        if saved_pos > 0.1 {
+            let sample = (saved_pos * device_sr as f64) as i64;
+            self.state.seek_request.store(sample, Ordering::Relaxed);
+            self.state
+                .position_samples
+                .store(sample.max(0) as u64, Ordering::Relaxed);
+        } else {
+            self.state
+                .position_samples
+                .store(0, Ordering::Relaxed);
+            self.state.seek_request.store(-1, Ordering::Relaxed);
+        }
 
         // Ring buffer is always sized for device rate.
         let ring_samples = RING_BUFFER_FRAMES * channels_usize;
@@ -227,6 +236,12 @@ impl AudioEngine {
     fn stop_internal(&mut self) {
         self.state.stop_flag.store(true, Ordering::Relaxed);
         self.state.playing.store(false, Ordering::Relaxed);
+
+        // Resume before dropping — cpal may hang when dropping a paused
+        // stream on Linux/PipeWire while another stream owns the device.
+        if let Some(ref stream) = self.stream {
+            let _ = stream.play();
+        }
 
         self.stream = None;
 

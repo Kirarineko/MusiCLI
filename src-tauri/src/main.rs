@@ -7,6 +7,8 @@ use clap::Parser;
 struct Cli {
     #[arg(long, default_value_t = 0)]
     port: u16,
+    #[arg(long, default_value = "0.0.0.0")]
+    bind: String,
     #[arg(long)]
     remote: bool,
     #[arg(long)]
@@ -25,17 +27,20 @@ fn main() {
     ));
     *state.lock().unwrap().music_folder.lock().unwrap() = music_folder;
 
+    let _ = musicli_lib::server_state::load_current_playlist(&state.lock().unwrap());
+
     musicli_lib::server_state::init_global(state.clone());
 
-    let port = musicli_lib::server::http::start_in_background(state.clone(), cli.port);
+    let port = musicli_lib::server::http::start_in_background(state.clone(), &cli.bind, cli.port);
     std::env::set_var("MUSICLI_HTTP_PORT", port.to_string());
+    std::env::set_var("MUSICLI_HOST", cli.bind.as_str());
 
     #[cfg(feature = "gui")]
     if !cli.remote {
         return musicli_lib::run_gui();
     }
 
-    println!("HTTP API: http://127.0.0.1:{}", port);
+    println!("HTTP API: http://{}:{}", cli.bind, port);
     loop {
         std::thread::park();
     }

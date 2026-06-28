@@ -1,6 +1,6 @@
 [package]
 name = "musicli"
-version = "3.3.1"
+version = "3.3.2"
 edition = "2021"
 
 [features]
@@ -61,6 +61,7 @@ chrono = "0.4"
 
 # Headless / server mode
 axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
 clap = { version = "4", features = ["derive"] }
 

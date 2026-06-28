@@ -183,7 +183,7 @@ Update a playlist (rename, change description, or replace tracks). Omit fields t
 **Response** `200` — `{ "updated": "Favorites" }`
 
 ### POST /playlists/switch
-Switch to a named playlist. Loads its tracks into the audio engine's queue and stops current playback.
+Switch to a named playlist. Loads its tracks into the audio engine's queue.
 
 **Request**
 ```json
@@ -192,6 +192,14 @@ Switch to a named playlist. Loads its tracks into the audio engine's queue and s
 **Response** `200`
 ```json
 { "switched": "Favorites", "track_count": 12 }
+```
+
+### POST /playlists/refresh
+Reload the current playlist's tracks from `playlists.json` into the audio engine queue. Useful after externally modifying the file.
+
+**Response** `200`
+```json
+{ "refreshed": true, "track_count": 72 }
 ```
 
 ## Playlist (flat queue)
