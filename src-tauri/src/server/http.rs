@@ -1,7 +1,7 @@
 use axum::{
     extract::{Query, State as AxumState},
     http::StatusCode,
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -44,6 +44,8 @@ pub fn start_in_background(state: Arc<Mutex<SState>>, port: u16) -> u16 {
 pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
     Router::new()
         .route("/status", get(status))
+        .route("/status/position", get(status_position))
+        .route("/status/duration", get(status_duration))
         .route("/play", post(play))
         .route("/pause", post(pause))
         .route("/stop", post(stop))
@@ -52,7 +54,11 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/seek", post(seek))
         .route("/volume", post(volume))
         .route("/mode", post(mode))
+        .route("/play-mode", get(get_play_mode).post(set_play_mode))
         .route("/playlist", get(get_playlist).post(add_playlist))
+        .route("/playlists", get(list_playlists).post(create_playlist))
+        .route("/playlists/single", get(get_playlist_single).delete(delete_playlist_single).put(update_playlist_single))
+        .route("/playlists/switch", post(switch_playlist))
         .route("/metadata", get(metadata))
         .route("/files", get(list_files))
         .route("/devices", get(devices))
@@ -65,6 +71,7 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/files/read", get(read_file_base64))
         .route("/sync/export", post(export_sync))
         .route("/sync/import", post(import_sync))
+        .route("/folder", put(set_folder))
         .with_state(state)
 }
 
@@ -75,6 +82,7 @@ struct StatusResponse {
     duration: f64,
     volume: u32,
     mode: String,
+    play_mode: String,
     current_index: Option<usize>,
     playlist_len: usize,
     current_track: Option<String>,
@@ -86,12 +94,14 @@ async fn status(state: AxumState<SharedState>) -> Json<StatusResponse> {
     let idx = *s.current_index.lock().unwrap();
     let track = idx.and_then(|i| s.playlist.lock().unwrap().get(i).cloned());
     let plen = s.playlist.lock().unwrap().len();
+    let pm = s.play_mode.lock().unwrap().clone();
     Json(StatusResponse {
         playing: engine.is_playing(),
         position: engine.get_position(),
         duration: engine.get_duration(),
         volume: engine.get_volume(),
         mode: engine.get_mode().to_string(),
+        play_mode: pm,
         current_index: idx,
         playlist_len: plen,
         current_track: track,
@@ -133,12 +143,14 @@ async fn play(
     let dur = engine.get_duration();
     let pos = engine.get_position();
     let plen = s.playlist.lock().unwrap().len();
+    let pm = s.play_mode.lock().unwrap().clone();
     Ok(Json(StatusResponse {
         playing: true,
         position: pos,
         duration: dur,
         volume: engine.get_volume(),
         mode: engine.get_mode().to_string(),
+        play_mode: pm,
         current_index: Some(idx),
         playlist_len: plen,
         current_track: Some(path),
@@ -173,12 +185,14 @@ async fn next_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse
     engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     *s.current_index.lock().unwrap() = Some(idx);
     let plen = s.playlist.lock().unwrap().len();
+    let pm = s.play_mode.lock().unwrap().clone();
     Ok(Json(StatusResponse {
         playing: true,
         position: engine.get_position(),
         duration: engine.get_duration(),
         volume: engine.get_volume(),
         mode: engine.get_mode().to_string(),
+        play_mode: pm,
         current_index: Some(idx),
         playlist_len: plen,
         current_track: Some(path),
@@ -199,12 +213,14 @@ async fn prev_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse
     engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     *s.current_index.lock().unwrap() = Some(idx);
     let plen = s.playlist.lock().unwrap().len();
+    let pm = s.play_mode.lock().unwrap().clone();
     Ok(Json(StatusResponse {
         playing: true,
         position: engine.get_position(),
         duration: engine.get_duration(),
         volume: engine.get_volume(),
         mode: engine.get_mode().to_string(),
+        play_mode: pm,
         current_index: Some(idx),
         playlist_len: plen,
         current_track: Some(path),
@@ -594,4 +610,182 @@ async fn import_sync(
         }
     }
     Ok(Json(serde_json::json!({ "imported": imported_count })))
+}
+
+// ── Status sub-routes ────────────────────────────────────────────────
+
+async fn status_position(state: AxumState<SharedState>) -> Json<f64> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    Json(engine.get_position())
+}
+
+async fn status_duration(state: AxumState<SharedState>) -> Json<f64> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    Json(engine.get_duration())
+}
+
+// ── Play mode ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PlayModeRequest {
+    mode: String,
+}
+
+const PLAY_MODES: &[&str] = &["normal", "repeat-one", "repeat-all", "shuffle"];
+
+async fn get_play_mode(state: AxumState<SharedState>) -> Json<String> {
+    let s = state.lock().unwrap();
+    let pm = s.play_mode.lock().unwrap().clone();
+    Json(pm)
+}
+
+async fn set_play_mode(
+    state: AxumState<SharedState>,
+    Json(req): Json<PlayModeRequest>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    if !PLAY_MODES.contains(&req.mode.as_str()) {
+        return Err((StatusCode::BAD_REQUEST, format!("Invalid play_mode. Must be one of: {:?}", PLAY_MODES)));
+    }
+    let s = state.lock().unwrap();
+    *s.play_mode.lock().unwrap() = req.mode.clone();
+    Ok(Json(req.mode))
+}
+
+// ── Named playlists ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct CreatePlaylistRequest {
+    name: String,
+    #[serde(default)]
+    desc: String,
+    #[serde(default)]
+    tracks: Vec<String>,
+}
+
+async fn list_playlists(
+    state: AxumState<SharedState>,
+) -> Result<Json<Vec<crate::core::playlist::PlaylistInfo>>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    crate::core::playlist::list_playlists(&mf)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn create_playlist(
+    state: AxumState<SharedState>,
+    Json(req): Json<CreatePlaylistRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    let desc = if req.desc.is_empty() { None } else { Some(req.desc.as_str()) };
+    crate::core::playlist::create_playlist(&mf, &req.name, desc, &req.tracks)
+        .map(|_| Json(serde_json::json!({ "created": req.name })))
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+#[derive(Deserialize)]
+struct PlaylistNameQuery {
+    name: String,
+}
+
+async fn get_playlist_single(
+    state: AxumState<SharedState>,
+    Query(q): Query<PlaylistNameQuery>,
+) -> Result<Json<Option<crate::core::playlist::Playlist>>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    crate::core::playlist::get_playlist(&mf, &q.name)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn delete_playlist_single(
+    state: AxumState<SharedState>,
+    Query(q): Query<PlaylistNameQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    crate::core::playlist::delete_playlist(&mf, &q.name)
+        .map(|_| Json(serde_json::json!({ "deleted": q.name })))
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+#[derive(Deserialize)]
+struct UpdatePlaylistRequest {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    desc: String,
+    #[serde(default)]
+    tracks: Option<Vec<String>>,
+}
+
+async fn update_playlist_single(
+    state: AxumState<SharedState>,
+    Query(q): Query<PlaylistNameQuery>,
+    Json(req): Json<UpdatePlaylistRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    let new_name = if req.name.is_empty() || req.name == q.name { None } else { Some(req.name.as_str()) };
+    let desc = if req.desc.is_empty() { None } else { Some(req.desc.as_str()) };
+    let tracks = req.tracks.as_deref();
+    crate::core::playlist::update_playlist(&mf, &q.name, new_name, desc, tracks)
+        .map(|_| Json(serde_json::json!({ "updated": q.name })))
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+async fn switch_playlist(
+    state: AxumState<SharedState>,
+    Json(req): Json<PlaylistNameQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    let pl = crate::core::playlist::switch_playlist(&mf, &req.name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    match pl {
+        Some(playlist) => {
+            *s.playlist.lock().unwrap() = playlist.tracks.clone();
+            *s.current_index.lock().unwrap() = None;
+            let len = playlist.tracks.len();
+            let mut engine = s.audio_engine.lock().unwrap();
+            engine.stop();
+            // Let engine stop naturally — don't auto-play
+            drop(engine);
+            Ok(Json(serde_json::json!({
+                "switched": req.name,
+                "track_count": len,
+            })))
+        }
+        None => Err((StatusCode::NOT_FOUND, format!("Playlist '{}' not found", req.name))),
+    }
+}
+
+// ── Folder ───────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct FolderRequest {
+    path: String,
+}
+
+async fn set_folder(
+    state: AxumState<SharedState>,
+    Json(req): Json<FolderRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    // Create the directory if it doesn't exist
+    if let Err(e) = std::fs::create_dir_all(&req.path) {
+        return Err((StatusCode::BAD_REQUEST, format!("Cannot create directory: {}", e)));
+    }
+    let s = state.lock().unwrap();
+    *s.music_folder.lock().unwrap() = req.path.clone();
+    crate::core::files::persist_music_folder(&req.path);
+    Ok(StatusCode::OK)
 }

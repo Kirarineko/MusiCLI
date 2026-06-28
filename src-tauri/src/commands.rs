@@ -157,3 +157,8 @@ pub fn remote_status() -> Result<String, String> {
         Ok(format!("Remote API on http://127.0.0.1:{}", port))
     }
 }
+
+#[tauri::command]
+pub fn set_music_folder(path: String) {
+    crate::server_state::set_music_folder(path);
+}

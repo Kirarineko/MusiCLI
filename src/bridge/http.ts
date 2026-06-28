@@ -30,6 +30,20 @@ async function apiPost<T>(path: string, body?: unknown): Promise<T | { error: st
   }
 }
 
+async function apiPut(path: string, body?: unknown): Promise<{ error?: string }> {
+  try {
+    const res = await fetch(`${_baseUrl}${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    return {};
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
 async function unwrap<T>(promise: Promise<T | { error: string }>): Promise<T> {
   const res = await promise;
   if (typeof res === 'object' && res !== null && 'error' in res) throw new Error(res.error);
@@ -41,16 +55,15 @@ type SyncResult = { success?: boolean; error?: string };
 export function createHttpBridge() {
   return {
     // Audio Engine
-    loadTrack: (path: string) => unwrap(apiPost<number>('/load', { path })),
     audioPlay: (path: string) => unwrap(apiPost<void>('/play', { path })),
     audioPause: () => unwrap(apiPost<void>('/pause')),
     audioStop: () => unwrap(apiPost<void>('/stop')),
     audioSeek: (seconds: number) => unwrap(apiPost<void>('/seek', { seconds })),
-    setVolume: (vol: number) => unwrap(apiPost<void>('/volume', { volume: vol })),
+    setVolume: (vol: number) => unwrap(apiPost<void>('/volume', { level: vol })),
     getPosition: () => unwrap(apiGet<number>('/status/position')),
     getDuration: () => unwrap(apiGet<number>('/status/duration')),
     setAudioMode: (mode: 'normal' | 'asio') => unwrap(apiPost<string>('/mode', { mode })),
-    getAudioMode: () => unwrap(apiGet<string>('/mode')),
+    getAudioMode: () => unwrap(apiGet<string>('/audio-mode')),
     listAudioDevices: () => unwrap(apiGet<string[]>('/devices')),
 
     // Metadata
@@ -60,22 +73,18 @@ export function createHttpBridge() {
     listAudioFiles: (dirPath: string) => apiGet<string[]>(`/files/list?dir=${encodeURIComponent(dirPath)}`),
     readFileBase64: (filePath: string) => apiGet<string>(`/files/read?path=${encodeURIComponent(filePath)}`),
     readFile: (filePath: string) => apiGet<string>(`/files/read?path=${encodeURIComponent(filePath)}`),
-    writeFile: (filePath: string, content: string) => apiPost<SyncResult>('/files/write', { path: filePath, content }),
-    copyFile: (src: string, dest: string) => apiPost<SyncResult>('/files/copy', { src, dest }),
-    mkdir: (dir: string) => apiPost<SyncResult>('/files/mkdir', { path: dir }),
-    dirExists: (dirPath: string) => unwrap(apiGet<boolean>(`/files/exists?path=${encodeURIComponent(dirPath)}`)),
 
     // Config
     readConfig: (_musicFolder: string, key: string) => apiGet(`/config?key=${encodeURIComponent(key)}`),
-    writeConfig: (_musicFolder: string, key: string, data: unknown) => apiPost<SyncResult>('/config', { key, data }),
+    writeConfig: (_musicFolder: string, key: string, data: unknown) => apiPut(`/config?key=${encodeURIComponent(key)}`, data),
 
     // Lyrics
-    findLrc: (mp3Path: string, rootDir: string) => apiGet<string | null>(`/lyrics?path=${encodeURIComponent(mp3Path)}&root=${encodeURIComponent(rootDir)}`),
-    readLrcOffsets: (lrcDir: string) => apiGet<Record<string, number>>(`/lyrics/offsets?dir=${encodeURIComponent(lrcDir)}`),
-    writeLrcOffset: (lrcDir: string, trackName: string, offsetMs: number) => apiPost<SyncResult>('/lyrics/offsets', { dir: lrcDir, track: trackName, offset: offsetMs }),
+    findLrc: (mp3Path: string) => apiGet<string | null>(`/lyrics?audio_path=${encodeURIComponent(mp3Path)}`),
+    readLrcOffsets: (lrcDir: string) => apiGet<Record<string, number>>(`/lyrics/offsets?lrc_dir=${encodeURIComponent(lrcDir)}`),
+    writeLrcOffset: (lrcDir: string, trackName: string, offsetMs: number) => apiPost<SyncResult>('/lyrics/offsets', { lrc_dir: lrcDir, track_name: trackName, offset_ms: offsetMs }),
 
     // Sync
-    createZip: (sourceDir: string, destZip: string) => apiPost<SyncResult>('/sync/export', { srcDir: sourceDir, destPath: destZip }),
-    extractZip: (zipPath: string, destDir: string) => apiPost<SyncResult>('/sync/import', { zipPath, destDir }),
+    createZip: (_sourceDir: string, destZip: string) => apiPost<SyncResult>('/sync/export', { dest_zip: destZip, playlist_names: [] }),
+    extractZip: (zipPath: string) => apiPost<SyncResult>('/sync/import', { zip_path: zipPath }),
   };
 }

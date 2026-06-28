@@ -222,6 +222,10 @@ export const tauriBridge = {
   },
 
   // --- Window ---
+  setMusicFolder(path: string) {
+    invoke('set_music_folder', { path }).catch(() => {});
+  },
+
   minimize() {
     invoke('minimize_window');
   },

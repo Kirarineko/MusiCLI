@@ -9,14 +9,23 @@ struct Cli {
     port: u16,
     #[arg(long)]
     remote: bool,
+    #[arg(long)]
+    music_folder: Option<String>,
 }
 
 fn main() {
     let cli = Cli::parse();
 
+    let music_folder = musicli_lib::core::files::resolve_music_folder(
+        cli.music_folder.as_deref()
+    );
+
     let state = std::sync::Arc::new(std::sync::Mutex::new(
         musicli_lib::server_state::ServerState::new(),
     ));
+    *state.lock().unwrap().music_folder.lock().unwrap() = music_folder;
+
+    musicli_lib::server_state::init_global(state.clone());
 
     let port = musicli_lib::server::http::start_in_background(state.clone(), cli.port);
     std::env::set_var("MUSICLI_HTTP_PORT", port.to_string());

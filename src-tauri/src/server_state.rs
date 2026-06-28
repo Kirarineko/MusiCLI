@@ -1,5 +1,5 @@
 use std::sync::atomic::AtomicBool;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::audio::engine::AudioEngine;
 use crate::lrc_parser::LrcLine;
@@ -71,5 +71,22 @@ impl ServerState {
             progress_empty: ' ',
             status_running: AtomicBool::new(false),
         }
+    }
+}
+
+// ── Global server state for GUI sync ─────────────────────────────────
+
+static GLOBAL_STATE: OnceLock<Arc<Mutex<ServerState>>> = OnceLock::new();
+
+pub fn init_global(state: Arc<Mutex<ServerState>>) {
+    let _ = GLOBAL_STATE.set(state);
+}
+
+pub fn set_music_folder(path: String) {
+    if let Some(state) = GLOBAL_STATE.get() {
+        *state.lock().unwrap().music_folder.lock().unwrap() = path;
+        crate::core::files::persist_music_folder(
+            &state.lock().unwrap().music_folder.lock().unwrap()
+        );
     }
 }

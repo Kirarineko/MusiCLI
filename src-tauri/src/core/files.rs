@@ -86,3 +86,49 @@ pub fn write_config(music_folder: &str, key: &str, data: &serde_json::Value) -> 
     let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
 }
+
+// ── Music folder persistence ────────────────────────────────────────
+
+fn persisted_music_folder_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("musicli").join("music_folder"))
+}
+
+fn read_persisted_music_folder() -> Option<String> {
+    let path = persisted_music_folder_path()?;
+    let content = fs::read_to_string(&path).ok()?;
+    let mf = content.trim().to_string();
+    if !mf.is_empty() && Path::new(&mf).is_dir() {
+        Some(mf)
+    } else {
+        None
+    }
+}
+
+pub fn persist_music_folder(path: &str) {
+    if let Some(p) = persisted_music_folder_path() {
+        if let Some(parent) = p.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(&p, path);
+    }
+}
+
+pub fn resolve_music_folder(cli_arg: Option<&str>) -> String {
+    // 1. CLI arg always wins, and persists for next time
+    if let Some(mf) = cli_arg {
+        if !mf.is_empty() && Path::new(mf).is_dir() {
+            persist_music_folder(mf);
+            return mf.to_string();
+        }
+    }
+    // 2. Persisted config file
+    if let Some(mf) = read_persisted_music_folder() {
+        return mf;
+    }
+    // 3. System audio directory
+    dirs::audio_dir()
+        .or_else(|| dirs::home_dir().map(|h| h.join("Music")))
+        .filter(|p| p.is_dir())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}

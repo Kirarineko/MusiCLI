@@ -15,11 +15,22 @@ Return current playback state.
   "duration": 331.89,
   "volume": 80,
   "mode": "normal",
+  "play_mode": "normal",
   "current_index": 0,
   "playlist_len": 5,
   "current_track": "/music/song.mp3"
 }
 ```
+
+### GET /status/position
+Get current playback position in seconds.
+
+**Response** `200` — `12.5`
+
+### GET /status/duration
+Get current track duration in seconds.
+
+**Response** `200` — `331.89`
 
 ### POST /play
 Play a track by path, index, or resume current.
@@ -88,11 +99,102 @@ Modes: `normal` (WASAPI/ALSA shared), `asio` (exclusive, requires ASIO feature).
 **Response** `200` — current mode string
 
 ### GET /audio-mode
-Get current audio mode.
+Get current audio output mode.
 
 **Response** `200` — `"normal"`
 
-## Playlist
+## Play Mode
+
+### GET /play-mode
+Get current play mode.
+
+**Response** `200`
+```json
+"normal"
+```
+Values: `normal` (sequential), `repeat-one` (single repeat), `repeat-all` (loop all), `shuffle` (random).
+
+### POST /play-mode
+Set play mode.
+
+**Request**
+```json
+{ "mode": "shuffle" }
+```
+**Response** `200` — mode string
+
+## Named Playlists
+
+Named playlists are persisted to `config/playlists.json` and require `music_folder` to be configured.
+
+### GET /playlists
+List all named playlists (summary).
+
+**Response** `200`
+```json
+[
+  { "name": "Default", "desc": "", "created_at": "", "track_count": 3 },
+  { "name": "Favorites", "desc": "My favorites", "created_at": "2025-01-01T00:00:00Z", "track_count": 12 }
+]
+```
+
+### POST /playlists
+Create a new named playlist.
+
+**Request**
+```json
+{ "name": "Favorites", "desc": "My favorites", "tracks": ["/music/a.mp3"] }
+```
+**Response** `200` — `{ "created": "Favorites" }`
+
+### GET /playlists/single
+Get a single playlist with all tracks.
+
+**Query** `?name=Favorites`
+
+**Response** `200`
+```json
+{
+  "name": "Favorites",
+  "desc": "My favorites",
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": null,
+  "sharer": null,
+  "tracks": ["/music/a.mp3", "/music/b.flac"]
+}
+```
+
+### DELETE /playlists/single
+Delete a named playlist.
+
+**Query** `?name=Favorites`
+
+**Response** `200` — `{ "deleted": "Favorites" }`
+
+### PUT /playlists/single
+Update a playlist (rename, change description, or replace tracks). Omit fields to keep them unchanged.
+
+**Query** `?name=Favorites`
+
+**Request**
+```json
+{ "name": "NewName", "desc": "Updated desc", "tracks": ["/music/b.flac"] }
+```
+**Response** `200` — `{ "updated": "Favorites" }`
+
+### POST /playlists/switch
+Switch to a named playlist. Loads its tracks into the audio engine's queue and stops current playback.
+
+**Request**
+```json
+{ "name": "Favorites" }
+```
+**Response** `200`
+```json
+{ "switched": "Favorites", "track_count": 12 }
+```
+
+## Playlist (flat queue)
 
 ### GET /playlist
 Return current playlist tracks.
@@ -180,6 +282,17 @@ Write a config file.
 **Request body** — any JSON value to write
 
 **Response** `204`
+
+### PUT /folder
+Set the music folder path used by config, lyrics, and playlist endpoints.
+
+**Request**
+```json
+{ "path": "/home/user/Music" }
+```
+**Response** `204`
+
+The path is persisted to `~/.config/musicli/music_folder` for subsequent starts.
 
 ## Lyrics
 

@@ -49,6 +49,7 @@ export interface IBridge {
   setAudioMode(mode: 'normal' | 'asio'): Promise<string>;
   getAudioMode(): Promise<string>;
   listAudioDevices(): Promise<string[]>;
+  setMusicFolder?(path: string): void;
 }
 
 let _bridge: IBridge | null = null;

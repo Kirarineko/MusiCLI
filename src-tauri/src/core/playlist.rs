@@ -147,6 +147,38 @@ pub fn get_track_playlists(music_folder: &str, track: &str) -> Result<Vec<String
         .collect())
 }
 
+pub fn update_playlist(
+    music_folder: &str,
+    name: &str,
+    new_name: Option<&str>,
+    desc: Option<&str>,
+    tracks: Option<&[String]>,
+) -> Result<(), String> {
+    let mut data = read_playlists_file(music_folder)?;
+    let pl = data.playlists.get_mut(name).ok_or("not_found")?;
+    if let Some(d) = desc {
+        pl.desc = d.to_string();
+    }
+    if let Some(t) = tracks {
+        pl.tracks = t.to_vec();
+    }
+    pl.updated_at = Some(chrono::Utc::now().to_rfc3339());
+    if let Some(nn) = new_name {
+        if nn != name {
+            if data.playlists.contains_key(nn) {
+                return Err("duplicate".into());
+            }
+            let mut pl = data.playlists.remove(name).unwrap();
+            pl.name = nn.to_string();
+            if data.current == name {
+                data.current = nn.to_string();
+            }
+            data.playlists.insert(nn.to_string(), pl);
+        }
+    }
+    write_playlists_file(music_folder, &data)
+}
+
 pub fn sync_track_playlists(music_folder: &str, track: &str, playlist_names: &[String]) -> Result<(), String> {
     let mut data = read_playlists_file(music_folder)?;
     // Remove track from all playlists

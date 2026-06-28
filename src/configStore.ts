@@ -41,6 +41,8 @@ export function setMusicFolder(path: string): void {
       localStorage.removeItem(BOOTSTRAP_KEY);
     }
   } catch { /* ignore */ }
+  // Sync to Rust HTTP server state
+  try { void getBridge().setMusicFolder?.(path); } catch { /* ignore */ }
 }
 
 // legacy localStorage keys (used as cache)

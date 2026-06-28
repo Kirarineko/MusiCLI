@@ -86,6 +86,7 @@ pub fn run_gui() {
             commands::remote_start,
             commands::remote_stop,
             commands::remote_status,
+            commands::set_music_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
