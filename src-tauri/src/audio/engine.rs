@@ -223,7 +223,9 @@ impl AudioEngine {
         if was_playing && !path.is_empty() {
             self.stop_internal();
             self.mode = mode;
-            let _ = self.play(&path);
+            if let Err(e) = self.play(&path) {
+                eprintln!("[audio-engine] set_mode: failed to resume playback: {}", e);
+            }
         } else {
             self.mode = mode;
         }
@@ -250,5 +252,13 @@ impl AudioEngine {
         }
 
         self.state.stop_flag.store(false, Ordering::Relaxed);
+    }
+}
+
+impl Drop for AudioEngine {
+    fn drop(&mut self) {
+        // Ensure the decoder thread is signaled to stop and joined so it
+        // doesn't outlive the engine with an open file handle.
+        self.stop_internal();
     }
 }

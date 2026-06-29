@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import type { OutputLine, SelectCandidate, InteractiveItem } from '../types';
 
 type InteractiveMode = 'import' | 'track-pl' | 'track-select' | null;
@@ -218,24 +218,32 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const value = useMemo<TerminalContextValue>(() => ({
+    lines,
+    printLine, printRaw, printKV, printList, printHelp,
+    clearTerminal,
+    selectMode, selectCandidates, selectIdx,
+    enterSelectMode, exitSelectMode, setSelectIdx,
+    imode, iitems: items, iidx, ifilter,
+    enterImode, exitImode,
+    setIidx, updateFilter, toggleIitem,
+    moveCursor,
+    imodeCallback,
+    seekMode,
+    enterSeekMode,
+    exitSeekMode,
+    completeMode, completeCandidates, completeIdx,
+    enterCompleteMode, exitCompleteMode, setCompleteIdx,
+  }), [lines, printLine, printRaw, printKV, printList, printHelp, clearTerminal,
+       selectMode, selectCandidates, selectIdx, enterSelectMode, exitSelectMode,
+       setSelectIdx, imode, items, iidx, ifilter, enterImode, exitImode,
+       setIidx, updateFilter, toggleIitem, moveCursor, imodeCallback,
+       seekMode, enterSeekMode, exitSeekMode,
+       completeMode, completeCandidates, completeIdx,
+       enterCompleteMode, exitCompleteMode, setCompleteIdx]);
+
   return (
-    <TerminalContext.Provider value={{
-      lines,
-      printLine, printRaw, printKV, printList, printHelp,
-      clearTerminal,
-      selectMode, selectCandidates, selectIdx,
-      enterSelectMode, exitSelectMode, setSelectIdx,
-      imode, iitems: items, iidx, ifilter,
-      enterImode, exitImode,
-      setIidx, updateFilter, toggleIitem,
-      moveCursor,
-      imodeCallback,
-      seekMode,
-      enterSeekMode,
-      exitSeekMode,
-      completeMode, completeCandidates, completeIdx,
-      enterCompleteMode, exitCompleteMode, setCompleteIdx,
-    }}>
+    <TerminalContext.Provider value={value}>
       {children}
     </TerminalContext.Provider>
   );

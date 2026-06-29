@@ -46,7 +46,7 @@ MusicLI 是一款**拟终端命令行风格**的桌面音乐播放器，使用 T
 **Headless 模式**（服务端部署）：
 ```bash
 chmod +x musicli
-./musicli --remote              # 默认绑 0.0.0.0:随机端口
+./musicli --remote              # 默认绑 0.0.0.0:52013（占用则自动+1）
 ./musicli --remote --port 8080 # 指定端口
 echo $MUSICLI_HTTP_PORT         # 查看端口号
 ```

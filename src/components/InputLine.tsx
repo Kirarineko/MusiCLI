@@ -118,6 +118,7 @@ export function InputLine() {
     saveCurrentTheme: settings.saveCurrentTheme,
     deleteTheme: settings.deleteTheme,
     exportTheme: settings.exportTheme,
+    importTheme: (jsonStr) => settings.importTheme(jsonStr),
 
     setLangFn: (lang) => settings.setLang(lang),
     syncLyricsTheme: () => {},

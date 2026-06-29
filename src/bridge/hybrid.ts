@@ -4,7 +4,7 @@ import { tauriBridge } from './tauri';
 
 export async function initHybridBridge(): Promise<IBridge> {
   // In Tauri context, prefer Tauri invoke for data.
-  // HTTP is only used when the server is explicitly running.
+  // HTTP is only used for the audio engine when the server is explicitly running.
   const isTauri = !!(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
 
   if (isTauri) {
@@ -13,10 +13,22 @@ export async function initHybridBridge(): Promise<IBridge> {
     if (port) {
       setServerPort(port);
       const httpBridge = createHttpBridge();
+      // Only let HTTP override the AUDIO ENGINE methods. File I/O, config,
+      // lyrics, sync, and dialogs must stay on Tauri invoke so they work
+      // regardless of the HTTP server's audio-only file restrictions.
       return {
         ...tauriBridge,
-        ...httpBridge, // HTTP overrides if server is running
-      };
+        audioPlay: httpBridge.audioPlay,
+        audioPause: httpBridge.audioPause,
+        audioStop: httpBridge.audioStop,
+        audioSeek: httpBridge.audioSeek,
+        setVolume: httpBridge.setVolume,
+        getPosition: httpBridge.getPosition,
+        getDuration: httpBridge.getDuration,
+        setAudioMode: httpBridge.setAudioMode,
+        getAudioMode: httpBridge.getAudioMode,
+        listAudioDevices: httpBridge.listAudioDevices,
+      } as IBridge;
     }
     // No server running — use Tauri invoke only
     return tauriBridge as unknown as IBridge;
@@ -33,10 +45,10 @@ export async function initHybridBridge(): Promise<IBridge> {
 }
 
 async function tryGetServerPort(): Promise<number> {
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 10; i++) {
     const port = (window as unknown as Record<string, number>).__MUSICLI_PORT__;
     if (port) return port;
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 50));
   }
   return 0;
 }

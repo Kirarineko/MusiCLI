@@ -1,4 +1,4 @@
-import { usePlayer } from '../contexts/PlayerContext';
+import { usePlayer, usePlayerTime } from '../contexts/PlayerContext';
 import { t } from '../i18n';
 import { formatTime, getFileName } from '../utils/format';
 
@@ -7,7 +7,8 @@ const MODE_ICONS: Record<string, string> = {
 };
 
 export function NowPlaying() {
-  const { playlist, currentIndex, currentTime, duration, volume, isPlaying, playMode, progressFilled, progressEmpty, progressWidth } = usePlayer();
+  const { playlist, currentIndex, duration, volume, isPlaying, playMode, progressFilled, progressEmpty, progressWidth } = usePlayer();
+  const { currentTime } = usePlayerTime();
 
   const trackName = currentIndex >= 0 && currentIndex < playlist.length
     ? getFileName(playlist[currentIndex])

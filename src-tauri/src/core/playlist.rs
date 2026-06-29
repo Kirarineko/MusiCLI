@@ -25,7 +25,7 @@ pub struct PlaylistInfo {
 #[derive(Debug, Serialize, Deserialize)]
 struct PlaylistsFile {
     #[serde(alias = "pls")]
-    playlists: std::collections::HashMap<String, Playlist>,
+    playlists: std::collections::BTreeMap<String, Playlist>,
     #[serde(alias = "cur")]
     current: String,
 }
@@ -65,7 +65,15 @@ fn write_playlists_file(music_folder: &str, data: &PlaylistsFile) -> Result<(), 
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    // Atomic write: write to a temp file in the same directory, then rename.
+    // This prevents corruption if the process crashes mid-write.
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, &json).map_err(|e| e.to_string())?;
+    fs::rename(&tmp_path, &path).map_err(|e| {
+        // Best-effort cleanup of the temp file on rename failure.
+        let _ = fs::remove_file(&tmp_path);
+        format!("Failed to finalize playlists.json: {}", e)
+    })
 }
 
 pub fn list_playlists(music_folder: &str) -> Result<Vec<PlaylistInfo>, String> {
@@ -114,7 +122,8 @@ pub fn delete_playlist(music_folder: &str, name: &str) -> Result<(), String> {
     }
     data.playlists.remove(name);
     if data.current == name {
-        data.current = data.playlists.keys().next().unwrap().clone();
+        // BTreeMap gives a deterministic successor; safe because we checked len > 1 above.
+        data.current = data.playlists.keys().next().cloned().unwrap_or_else(|| "Default".to_string());
     }
     write_playlists_file(music_folder, &data)
 }
@@ -172,12 +181,13 @@ pub fn update_playlist(
             if data.playlists.contains_key(nn) {
                 return Err("duplicate".into());
             }
-            let mut pl = data.playlists.remove(name).unwrap();
-            pl.name = nn.to_string();
-            if data.current == name {
-                data.current = nn.to_string();
+            if let Some(mut pl) = data.playlists.remove(name) {
+                pl.name = nn.to_string();
+                if data.current == name {
+                    data.current = nn.to_string();
+                }
+                data.playlists.insert(nn.to_string(), pl);
             }
-            data.playlists.insert(nn.to_string(), pl);
         }
     }
     write_playlists_file(music_folder, &data)

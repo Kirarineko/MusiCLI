@@ -31,6 +31,21 @@ pub fn run_gui() {
         .manage(AppState {
             audio_engine: Mutex::new(AudioEngine::new()),
         })
+        .setup(|app| {
+            // Inject the HTTP server port into the frontend so the hybrid
+            // bridge can auto-discover and connect to the HTTP API.
+            if let Ok(port_str) = std::env::var("MUSICLI_HTTP_PORT") {
+                if let Ok(port) = port_str.parse::<u32>() {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.eval(format!(
+                            "window.__MUSICLI_PORT__ = {};",
+                            port
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if window.label() == "main" {

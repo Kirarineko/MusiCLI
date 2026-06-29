@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import type { PlayMode, LrcLine } from '../types';
 import { getStoredSettings, SHADOW_PRESETS, useSettings } from './SettingsContext';
 import { usePlaylists } from './PlaylistContext';
@@ -6,10 +6,7 @@ import { saveSettings as saveSettingsToStore } from '../configStore';
 import { parseLRC, getCurrentLineIdx } from '../utils/lrc';
 import { waitFor } from '../utils/waitFor';
 import { getBridge } from '../bridge';
-
-function hasError(obj: unknown): obj is { error: string } {
-  return typeof obj === 'object' && obj !== null && 'error' in obj;
-}
+import { hasError } from '../utils/guards';
 
 interface PlayerContextValue {
   // Playlist
@@ -36,8 +33,7 @@ interface PlayerContextValue {
   playMode: PlayMode;
   setPlayMode: (mode: PlayMode) => void;
   cyclePlayMode: () => PlayMode;
-  // State
-  currentTime: number;
+  // State (currentTime lives in PlayerTimeContext to avoid 10Hz re-renders)
   duration: number;
   volume: number;
   // Lyrics
@@ -58,7 +54,12 @@ interface PlayerContextValue {
   registerLyricPrinter: (fn: (text: string, className?: string) => void) => void;
 }
 
+interface PlayerTimeContextValue {
+  currentTime: number;
+}
+
 const PlayerContext = createContext<PlayerContextValue | null>(null);
+const PlayerTimeContext = createContext<PlayerTimeContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const settings = useSettings();
@@ -137,14 +138,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     setPlaylist(prev => {
+      // Mirror the source playlist exactly so removals propagate.
+      // If the currently-playing track was removed, reset the index.
       if (prev.length === tracks.length && prev.every((t, i) => t === tracks[i])) return prev;
-      const newTracks = tracks.filter((t: string) => !prev.includes(t));
-      if (newTracks.length > 0 && newTracks.length < tracks.length) {
-        return [...prev, ...newTracks];
-      }
       return tracks;
     });
-  }, [playlistsCtx.currentPlName, playlistsCtx.playlists, playlistsCtx.getPlaylistTracks]);
+    setCurrentIndex(prev => {
+      if (prev < 0) return prev;
+      const curTrack = playlist[prev];
+      if (!curTrack || !tracks.includes(curTrack)) {
+        return -1;
+      }
+      // Keep the same track if it's still present (its index may have shifted).
+      const newIdx = tracks.indexOf(curTrack);
+      return newIdx >= 0 ? newIdx : -1;
+    });
+  }, [playlistsCtx.currentPlName, playlistsCtx.playlists, playlistsCtx.getPlaylistTracks, playlist]);
 
   const nextShuffleIndex = useCallback(() => {
     if (playlist.length === 0) return -1;
@@ -305,25 +314,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (dur > 0 && pos >= dur - 0.1) {
           if (autoNextGuardRef.current) return;
           autoNextGuardRef.current = true;
-          // Track ended — handle play mode
+          // Track ended — handle play mode and capture the NEW index.
+          let newIdx = -1;
           if (playModeRef.current === 'repeat-one') {
+            newIdx = currentIndex;
             playIndex(currentIndex);
           } else if (playModeRef.current === 'shuffle') {
             const idx = nextShuffleIndex();
-            if (idx >= 0) playIndex(idx);
+            if (idx >= 0) { newIdx = idx; playIndex(idx); }
           } else if (playModeRef.current === 'repeat-all') {
-            playIndex((currentIndex + 1) % playlist.length);
+            newIdx = (currentIndex + 1) % playlist.length;
+            playIndex(newIdx);
           } else {
             const nextTrack = currentIndex + 1;
             if (nextTrack < playlist.length) {
+              newIdx = nextTrack;
               playIndex(nextTrack);
             } else {
               setIsPlaying(false);
             }
           }
-          // Load lyrics for new track
-          const fp = playlist[currentIndex];
-          if (fp && loadLrcRef.current) loadLrcRef.current(fp);
+          // Load lyrics for the NEW track (not the closure's currentIndex).
+          if (newIdx >= 0 && newIdx < playlist.length) {
+            const newFp = playlist[newIdx];
+            if (newFp && loadLrcRef.current) loadLrcRef.current(newFp);
+          }
           endedCallbacksRef.current.forEach(fn => fn());
         }
       } catch {
@@ -534,27 +549,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const getPlaylist = useCallback(() => playlist, [playlist]);
 
-  return (
-    <PlayerContext.Provider value={{
-      playlist,
-      currentIndex,
-      getPlaylist,
-      addToPlaylist, clearPlaylist,
+  // Memoize the stable context value — excludes currentTime so consumers
+  // don't re-render at 10Hz during playback.
+  const stableValue = useMemo<PlayerContextValue>(() => ({
+    playlist,
+    currentIndex,
+    getPlaylist,
+    addToPlaylist, clearPlaylist,
+    play, pause, toggle, stop, playIndex, next, prev, seek,
+    setVolume, getVolume, getCurrentTime, getDuration,
+    isPlaying,
+    playMode, setPlayMode, cyclePlayMode,
+    duration, volume,
+    lyricsLines, lyricsTerminal, lyricsFloating,
+    toggleTerminalLyrics, toggleFloatingLyrics,
+    setLyricsTerminal, setLyricsFloating,
+    loadLRC, updateLyrics,
+    progressFilled: s.progressFilled,
+    progressEmpty: s.progressEmpty,
+    progressWidth: s.progressWidth,
+    registerLyricPrinter,
+  }), [playlist, currentIndex, getPlaylist, addToPlaylist, clearPlaylist,
       play, pause, toggle, stop, playIndex, next, prev, seek,
       setVolume, getVolume, getCurrentTime, getDuration,
-      isPlaying,
-      playMode, setPlayMode, cyclePlayMode,
-      currentTime, duration, volume,
-      lyricsLines, lyricsTerminal, lyricsFloating,
+      isPlaying, playMode, setPlayMode, cyclePlayMode,
+      duration, volume, lyricsLines, lyricsTerminal, lyricsFloating,
       toggleTerminalLyrics, toggleFloatingLyrics,
-      setLyricsTerminal, setLyricsFloating,
-      loadLRC, updateLyrics,
-      progressFilled: s.progressFilled,
-      progressEmpty: s.progressEmpty,
-      progressWidth: s.progressWidth,
-      registerLyricPrinter,
-    }}>
-      {children}
+      setLyricsTerminal, setLyricsFloating, loadLRC, updateLyrics,
+      registerLyricPrinter]);
+
+  // The time context value changes every 100ms — only NowPlaying subscribes.
+  const timeValue = useMemo<PlayerTimeContextValue>(() => ({ currentTime }), [currentTime]);
+
+  return (
+    <PlayerContext.Provider value={stableValue}>
+      <PlayerTimeContext.Provider value={timeValue}>
+        {children}
+      </PlayerTimeContext.Provider>
     </PlayerContext.Provider>
   );
 }
@@ -563,5 +594,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 export function usePlayer() {
   const ctx = useContext(PlayerContext);
   if (!ctx) throw new Error('usePlayer must be used within PlayerProvider');
+  return ctx;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function usePlayerTime() {
+  const ctx = useContext(PlayerTimeContext);
+  if (!ctx) throw new Error('usePlayerTime must be used within PlayerProvider');
   return ctx;
 }

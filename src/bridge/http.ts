@@ -78,10 +78,11 @@ export function createHttpBridge() {
     readConfig: (_musicFolder: string, key: string) => apiGet(`/config?key=${encodeURIComponent(key)}`),
     writeConfig: (_musicFolder: string, key: string, data: unknown) => apiPut(`/config?key=${encodeURIComponent(key)}`, data),
 
-    // Lyrics
+    // Lyrics — lrc_dir is derived server-side from music_folder/lrc,
+    // so the lrcDir parameter is ignored in HTTP mode.
     findLrc: (mp3Path: string) => apiGet<string | null>(`/lyrics?audio_path=${encodeURIComponent(mp3Path)}`),
-    readLrcOffsets: (lrcDir: string) => apiGet<Record<string, number>>(`/lyrics/offsets?lrc_dir=${encodeURIComponent(lrcDir)}`),
-    writeLrcOffset: (lrcDir: string, trackName: string, offsetMs: number) => apiPost<SyncResult>('/lyrics/offsets', { lrc_dir: lrcDir, track_name: trackName, offset_ms: offsetMs }),
+    readLrcOffsets: (_lrcDir: string) => apiGet<Record<string, number>>(`/lyrics/offsets`),
+    writeLrcOffset: (_lrcDir: string, trackName: string, offsetMs: number) => apiPost<SyncResult>('/lyrics/offsets', { track_name: trackName, offset_ms: offsetMs }),
 
     // Sync
     createZip: (_sourceDir: string, destZip: string) => apiPost<SyncResult>('/sync/export', { dest_zip: destZip, playlist_names: [] }),

@@ -35,15 +35,25 @@ SettingsProvider → PlaylistProvider → PlayerProvider → TerminalProvider �
 
 ```
 src-tauri/src/
-  main.rs           # Entry: starts HTTP server → run_gui() or REPL
+  main.rs           # Entry: starts HTTP server → run_gui() or headless park
   lib.rs            # Tauri builder + invoke_handler
   commands.rs       # Tauri command wrappers → calls core::
+  dialog_cmd.rs     # Tauri file dialog commands (gui only)
+  lyrics_cmd.rs     # Floating lyrics window commands (gui only)
+  window_cmd.rs     # Window control commands (gui only)
+  lrc_parser.rs     # LRC parsing + current-line lookup
+  server_state.rs   # Shared ServerState (audio engine, playlist, play mode)
   core/             # Shared business logic (no framework coupling)
-    files.rs        #   FS, config paths, ZIP, file I/O
+    files.rs        #   FS, config paths, file I/O, audio file validation
     metadata.rs     #   Audio metadata (lofty)
-    lyrics.rs       #   LRC search, parse, offset I/O
-    playlist.rs     #   Named playlist CRUD
+    lyrics.rs       #   LRC search, offset I/O
+    playlist.rs     #   Named playlist CRUD (atomic writes)
   audio/            # Audio engine (Symphonia → cpal)
+    mod.rs          #   Tauri audio commands + AudioMode enum
+    engine.rs       #   AudioEngine, SharedState, Drop impl
+    decoder.rs      #   Symphonia decode loop
+    output.rs       #   cpal stream + channel up/down-mix
+    resampler.rs    #   rubato sample rate conversion
   server/
     http.rs         # axum HTTP API (always compiled)
 ```
@@ -59,11 +69,11 @@ Commands register at **module level** (not in `useEffect`) to survive Vite HMR.
 ### Bridge: Tauri invoke (primary), HTTP (external)
 
 - GUI communicates via `@tauri-apps/api/core` invoke → Tauri commands in `lib.rs`
-- HTTP server runs on random `127.0.0.1` port for external API access
+- HTTP server runs on `0.0.0.0` (LAN-accessible) on a random port for external API access
 - The HTTP server and GUI use **independent** audio engines — playing via one does not affect the other
 - `bridge/tauri.ts` — full bridge with invoke calls for all data operations
 - `bridge/http.ts` — fetch() wrapper for REST API
-- `bridge/hybrid.ts` — auto-detects Tauri vs browser, prefers invoke in Tauri context
+- `bridge/hybrid.ts` — auto-detects Tauri vs browser; in Tauri context, only audio engine methods are routed via HTTP (when the server is running); file I/O, config, lyrics, and dialogs always use Tauri invoke
 
 ## Gotchas
 
@@ -103,9 +113,9 @@ The same `musicli` binary serves both:
 
 `settings.settings` (from `useSettings()`) is a context value computed at render time. If a module-level `_settings` is mutated without triggering a re-render, the context value is **stale**. Commands that need the latest value immediately after `saveSettings()` should read from `getStoredSettings()` (module-level helper) instead.
 
-### SafeHtml regex must process tags in one pass
+### SafeHtml attribute allowlist
 
-The `SafeHtml` component in `src/components/SafeHtml.tsx` escapes all HTML then unescapes whitelisted tags. The regex replacement must handle opening tag + attributes + closing in a single pass per tag. Splitting it into multiple replacements (first `&lt;div` → `<div`, then `&gt;` → `>` separately) breaks. See the current implementation for the working pattern.
+The `SafeHtml` component in `src/components/SafeHtml.tsx` escapes all HTML then unescapes whitelisted tags. Only a single `style="..."` attribute is permitted, and its value is validated against a property allowlist (`color`, `background-color`, `font-weight`, etc.). All other attributes (including `on*` event handlers) are stripped. Do not add support for arbitrary attributes — this would re-introduce the XSS vector.
 
 ### `showMetadata` uses `formatTime()`
 
@@ -117,15 +127,15 @@ Single source of truth. Do not redefine it inline. Import from `'../../utils/gua
 
 ### `DEFAULT_SETTINGS` lives in `configStore.ts`
 
-`SettingsContext.tsx` imports it — no duplicate definition. Same for `BUILTIN_THEMES` and `SHADOW_PRESETS`.
+`SettingsContext.tsx` imports it — no duplicate definition. `SHADOW_PRESETS` lives in `constants/themes.ts` and is re-exported via `SettingsContext.tsx`. `BUILTIN_THEMES` is defined in `configStore.ts` only.
 
 ### Loading spinner
 
-The app binds to a random port via `TcpListener::bind("127.0.0.1:0")` to discover the port, then binds again inside the tokio runtime. Do not use `tokio::net::TcpListener::from_std()` — it causes Linux socket errors.
+The app tries to bind the HTTP server starting from port 52013, incrementing if occupied (52013 → 52014 → …). The probe uses `TcpListener::bind("0.0.0.0:PORT")` to test availability, drops the probe, then rebinds inside the tokio runtime. Do not use `tokio::net::TcpListener::from_std()` — it causes Linux socket errors. In GUI mode, the port is injected into the frontend via `window.__MUSICLI_PORT__` in the Tauri `setup` hook so the hybrid bridge can auto-discover the HTTP API.
 
 ### Cargo features for `tauri dev`
 
-`pnpm tauri dev` runs `cargo run --no-default-features`. Since tauri is non-optional, this works without any `--features` flags.
+`pnpm tauri dev` runs `cargo run --no-default-features` with `--features gui` (passed via `tauri.conf.json` `build.features`). `tauri` is an optional dependency gated by the `gui` feature.
 
 ## Testing Notes
 

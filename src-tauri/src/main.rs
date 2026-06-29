@@ -5,7 +5,7 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(name = "musicli", about = "Pseudo-CLI local music player")]
 struct Cli {
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = musicli_lib::server::http::START_PORT)]
     port: u16,
     #[arg(long, default_value = "0.0.0.0")]
     bind: String,
@@ -35,6 +35,8 @@ fn main() {
     std::env::set_var("MUSICLI_HTTP_PORT", port.to_string());
     std::env::set_var("MUSICLI_HOST", cli.bind.as_str());
 
+    // Print connection info for auto-connection (headless mode).
+    // GUI mode injects the port into the frontend via Tauri's setup hook.
     #[cfg(feature = "gui")]
     if !cli.remote {
         return musicli_lib::run_gui();

@@ -2364,7 +2364,7 @@ dependencies = [
 
 [[package]]
 name = "musicli"
-version = "3.3.2"
+version = "3.3.3"
 dependencies = [
  "axum",
  "base64 0.22.1",

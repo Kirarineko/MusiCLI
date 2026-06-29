@@ -190,6 +190,9 @@ fn decode_inner(
                 state
                     .position_samples
                     .store(seek_req.max(0) as u64, Ordering::Relaxed);
+                // Clear EOF so the loop resumes reading packets after a
+                // backward seek past the end of the track.
+                eof = false;
             }
         }
 

@@ -14,12 +14,7 @@
 
 import type { AppSettings, Theme, Playlist, Lang } from './types';
 import { isBridgeAvailable, getBridge } from './bridge';
-
-// ── helpers ──────────────────────────────────────────────────────────
-
-function hasError(obj: unknown): obj is { error: string } {
-  return typeof obj === 'object' && obj !== null && 'error' in obj;
-}
+import { hasError } from './utils/guards';
 
 // ── bootstrap ────────────────────────────────────────────────────────
 

@@ -44,8 +44,11 @@ export function applyCssVars(s: AppSettings) {
     const ext = s.customFontData.startsWith('data:font/woff2') ? 'woff2' :
                 s.customFontData.startsWith('data:font/woff') ? 'woff' :
                 s.customFontData.startsWith('data:font/otf') ? 'otf' : 'truetype';
-    styleEl.textContent = `@font-face { font-family: '${s.customFont}'; src: url(${s.customFontData}) format('${ext}'); }`;
-    root.style.setProperty('--font', `"${s.customFont}", ${baseFonts}`);
+    // Sanitize the font-family name: strip characters that could break out of
+    // the @font-face declaration and inject arbitrary CSS.
+    const safeFontName = s.customFont.replace(/['"\\;{}]/g, '').slice(0, 64);
+    styleEl.textContent = `@font-face { font-family: '${safeFontName}'; src: url(${s.customFontData}) format('${ext}'); }`;
+    root.style.setProperty('--font', `"${safeFontName}", ${baseFonts}`);
   } else {
     const styleEl = document.getElementById('custom-font-style');
     if (styleEl) styleEl.remove();

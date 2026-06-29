@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
 import type { Playlist, PlaylistInfo } from '../types';
 import { t } from '../i18n';
 import { getPlaylists as getPlaylistsFromStore, savePlaylists as savePlaylistsToStore } from '../configStore';
@@ -213,17 +213,24 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     persist(pls, currentPlName);
   }, [playlists, currentPlName, persist]);
 
+  const value = useMemo<PlaylistContextValue>(() => ({
+    playlists, currentPlName,
+    getPlaylistTracks,
+    createPlaylist, createPlaylistWithTracks, deletePlaylist, switchPlaylist,
+    addTracksToCurrent, replaceCurrentTracks,
+    editPlaylist, getCurrentPlaylist, getCurrentPlName,
+    listAllPlaylists, getPlaylistData,
+    getPlaylistsForTrack, syncTrackToPlaylists,
+    savePlaylists: savePlaylistsFn, ensureDefault, reloadFromStore,
+  }), [playlists, currentPlName, getPlaylistTracks,
+       createPlaylist, createPlaylistWithTracks, deletePlaylist, switchPlaylist,
+       addTracksToCurrent, replaceCurrentTracks, editPlaylist,
+       getCurrentPlaylist, getCurrentPlName, listAllPlaylists, getPlaylistData,
+       getPlaylistsForTrack, syncTrackToPlaylists, savePlaylistsFn,
+       ensureDefault, reloadFromStore]);
+
   return (
-    <PlaylistContext.Provider value={{
-      playlists, currentPlName,
-      getPlaylistTracks,
-      createPlaylist, createPlaylistWithTracks, deletePlaylist, switchPlaylist,
-      addTracksToCurrent, replaceCurrentTracks,
-      editPlaylist, getCurrentPlaylist, getCurrentPlName,
-      listAllPlaylists, getPlaylistData,
-      getPlaylistsForTrack, syncTrackToPlaylists,
-      savePlaylists: savePlaylistsFn, ensureDefault, reloadFromStore,
-    }}>
+    <PlaylistContext.Provider value={value}>
       {children}
     </PlaylistContext.Provider>
   );

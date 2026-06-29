@@ -1,6 +1,6 @@
 {
   "productName": "MusicLI",
-  "version": "3.3.1",
+  "version": "3.3.3",
   "identifier": "com.kirarineko.musicli",
   "build": {
     "frontendDist": "../dist",
@@ -26,10 +26,10 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": ["$HOME/**", "$AUDIO/**", "$DOCUMENT/**", "$DOWNLOAD/**"]
       }
     }
   },

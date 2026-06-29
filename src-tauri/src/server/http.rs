@@ -19,14 +19,39 @@ use crate::server_state::ServerState as SState;
 
 type SharedState = Arc<Mutex<SState>>;
 
+/// Starting port for the HTTP server. If occupied, increments until a free
+/// port is found (52013 → 52014 → 52015 → …).
+pub const START_PORT: u16 = 52013;
+const MAX_PORT_ATTEMPTS: u16 = 100;
+
 pub fn start_in_background(state: Arc<Mutex<SState>>, bind: &str, port: u16) -> u16 {
-    // Bind a temporary socket to discover the actual port, then release it.
-    // The real listener is bound inside the tokio runtime to avoid
-    // tokio's from_std compatibility issues on Linux.
-    let probe = TcpListener::bind(format!("{}:{}", bind, port))
-        .expect("Failed to bind HTTP server probe");
-    let actual_port = probe.local_addr().unwrap().port();
-    drop(probe);
+    // If the caller passes 0, use the default starting port.
+    let start_port = if port == 0 { START_PORT } else { port };
+
+    // Try ports sequentially until we find a free one.
+    // We bind a probe socket to test availability, then drop it and rebind
+    // inside the tokio runtime (from_std causes Linux socket errors).
+    let actual_port = {
+        let mut found: Option<u16> = None;
+        for p in start_port..start_port.saturating_add(MAX_PORT_ATTEMPTS) {
+            match TcpListener::bind(format!("{}:{}", bind, p)) {
+                Ok(listener) => {
+                    found = Some(listener.local_addr().unwrap().port());
+                    drop(listener);
+                    break;
+                }
+                Err(_) => continue,
+            }
+        }
+        found.unwrap_or_else(|| panic!(
+            "Failed to bind HTTP server: no free port in range {}-{}",
+            start_port,
+            start_port.saturating_add(MAX_PORT_ATTEMPTS - 1),
+        ))
+    };
+
+    // Log the connection info so external tools can auto-discover the server.
+    eprintln!("[server] HTTP API listening on http://{}:{}", bind, actual_port);
 
     let bind_addr = bind.to_string();
     let s = state.clone();
@@ -182,14 +207,65 @@ async fn next_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse
         return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
     }
     let cur = s.current_index.lock().unwrap().unwrap_or(0);
-    let idx = if cur + 1 < playlist.len() { cur + 1 } else { 0 };
+    let pm = s.play_mode.lock().unwrap().clone();
+
+    let idx = match pm.as_str() {
+        "repeat-one" => cur,
+        "shuffle" => {
+            // Pick a random index different from the current one.
+            if playlist.len() == 1 {
+                cur
+            } else {
+                use std::collections::HashSet;
+                let mut picked: HashSet<usize> = HashSet::new();
+                picked.insert(cur);
+                let mut result = cur;
+                let mut seed = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0)
+                    .wrapping_add(cur as u64);
+                while picked.len() < playlist.len() {
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    let cand = (seed as usize) % playlist.len();
+                    if picked.insert(cand) { result = cand; break; }
+                }
+                result
+            }
+        }
+        // "normal" and "repeat-all": advance, stop at end for "normal".
+        _ => {
+            if cur + 1 < playlist.len() {
+                cur + 1
+            } else if pm == "repeat-all" {
+                0
+            } else {
+                // normal mode at end — stop playback.
+                let mut engine = s.audio_engine.lock().unwrap();
+                engine.stop();
+                *s.current_index.lock().unwrap() = None;
+                let plen = playlist.len();
+                return Ok(Json(StatusResponse {
+                    playing: false,
+                    position: 0.0,
+                    duration: engine.get_duration(),
+                    volume: engine.get_volume(),
+                    mode: engine.get_mode().to_string(),
+                    play_mode: pm,
+                    current_index: None,
+                    playlist_len: plen,
+                    current_track: None,
+                }));
+            }
+        }
+    };
+
     let path = playlist[idx].clone();
     drop(playlist);
     let mut engine = s.audio_engine.lock().unwrap();
     engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     *s.current_index.lock().unwrap() = Some(idx);
     let plen = s.playlist.lock().unwrap().len();
-    let pm = s.play_mode.lock().unwrap().clone();
     Ok(Json(StatusResponse {
         playing: true,
         position: engine.get_position(),
@@ -210,14 +286,32 @@ async fn prev_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse
         return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
     }
     let cur = s.current_index.lock().unwrap().unwrap_or(0);
-    let idx = if cur > 0 { cur - 1 } else { playlist.len().saturating_sub(1) };
+    let pm = s.play_mode.lock().unwrap().clone();
+    let idx = match pm.as_str() {
+        "repeat-one" => cur,
+        "shuffle" => {
+            if playlist.len() == 1 { cur } else {
+                let mut seed = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0)
+                    .wrapping_add((cur as u64).wrapping_mul(2654435761));
+                let mut chosen = cur;
+                while chosen == cur {
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    chosen = (seed as usize) % playlist.len();
+                }
+                chosen
+            }
+        }
+        _ => if cur > 0 { cur - 1 } else { playlist.len().saturating_sub(1) },
+    };
     let path = playlist[idx].clone();
     drop(playlist);
     let mut engine = s.audio_engine.lock().unwrap();
     engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     *s.current_index.lock().unwrap() = Some(idx);
     let plen = s.playlist.lock().unwrap().len();
-    let pm = s.play_mode.lock().unwrap().clone();
     Ok(Json(StatusResponse {
         playing: true,
         position: engine.get_position(),
@@ -311,6 +405,10 @@ struct MetadataQuery {
 async fn metadata(
     Query(q): Query<MetadataQuery>,
 ) -> Result<Json<crate::core::metadata::MetadataResult>, (StatusCode, String)> {
+    // Restrict to audio files to prevent arbitrary file probing via HTTP.
+    if !crate::core::files::is_audio_file(std::path::Path::new(&q.path)) {
+        return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
+    }
     crate::core::metadata::read_metadata(&q.path)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -407,25 +505,21 @@ async fn search_lyrics(
     Ok(Json(serde_json::json!({ "lrc_path": result })))
 }
 
-#[derive(Deserialize)]
-struct LrcOffsetsQuery {
-    lrc_dir: String,
-}
-
 async fn get_lyrics_offsets(
     state: AxumState<SharedState>,
-    Query(q): Query<LrcOffsetsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // music_folder is available but lrc_dir is explicit
-    let _ = state;
-    let offsets = crate::core::lyrics::read_lrc_offsets(&q.lrc_dir)
+    // Derive lrc_dir from music_folder/lrc — never trust client-supplied paths.
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    let lrc_dir = Path::new(&mf).join("lrc");
+    let lrc_dir_str = lrc_dir.to_string_lossy().to_string();
+    let offsets = crate::core::lyrics::read_lrc_offsets(&lrc_dir_str)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!(offsets)))
 }
 
 #[derive(Deserialize)]
 struct LrcOffsetWriteRequest {
-    lrc_dir: String,
     track_name: String,
     offset_ms: i64,
 }
@@ -434,8 +528,12 @@ async fn set_lyrics_offset(
     state: AxumState<SharedState>,
     Json(req): Json<LrcOffsetWriteRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let _ = state;
-    crate::core::lyrics::write_lrc_offset(&req.lrc_dir, &req.track_name, req.offset_ms)
+    // Derive lrc_dir from music_folder/lrc — never trust client-supplied paths.
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    let lrc_dir = Path::new(&mf).join("lrc");
+    let lrc_dir_str = lrc_dir.to_string_lossy().to_string();
+    crate::core::lyrics::write_lrc_offset(&lrc_dir_str, &req.track_name, req.offset_ms)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(StatusCode::OK)
 }
@@ -491,6 +589,11 @@ struct PathQuery {
 async fn read_file_base64(
     Query(q): Query<PathQuery>,
 ) -> Result<Json<String>, (StatusCode, String)> {
+    // Restrict to audio files: the HTTP API is network-exposed (0.0.0.0)
+    // and must not allow arbitrary file exfiltration.
+    if !crate::core::files::is_audio_file(std::path::Path::new(&q.path)) {
+        return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
+    }
     crate::core::files::read_file_base64(&q.path)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -509,9 +612,23 @@ async fn export_sync(
     state: AxumState<SharedState>,
     Json(req): Json<SyncExportRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    // Validate destination path: reject obvious system paths and require it
+    // live under the user's home or music folder.
+    let home = dirs::home_dir().map(|h| h.to_path_buf());
     let s = state.lock().unwrap();
     let mf = s.music_folder.lock().unwrap().clone();
     drop(s);
+
+    let dest = Path::new(&req.dest_zip);
+    let dest_canon = fs::canonicalize(dest).unwrap_or_else(|_| dest.to_path_buf());
+    let is_safe = match (&home, mf.is_empty()) {
+        (Some(h), true) => dest_canon.starts_with(h),
+        (Some(h), false) => dest_canon.starts_with(h) || dest_canon.starts_with(&mf),
+        (None, _) => true, // can't determine home — allow but log
+    };
+    if !is_safe {
+        return Err((StatusCode::FORBIDDEN, "Export destination outside allowed directories".into()));
+    }
 
     // Build a lightweight export: read playlists, filter if needed, write JSON, zip it
     use crate::core::playlist::{get_playlist, list_playlists};
@@ -753,17 +870,24 @@ async fn switch_playlist(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let s = state.lock().unwrap();
     let mf = s.music_folder.lock().unwrap().clone();
+    // Verify the playlist exists and is non-empty BEFORE writing current to disk.
+    // This avoids the inconsistent state where the file says current=X but we
+    // return 404 to the caller.
+    let pl = crate::core::playlist::get_playlist(&mf, &req.name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Playlist '{}' not found", req.name)))?;
+    if pl.tracks.is_empty() {
+        return Err((StatusCode::NOT_FOUND, format!("Playlist '{}' is empty", req.name)));
+    }
     crate::core::playlist::switch_playlist(&mf, &req.name)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     match crate::server_state::load_current_playlist(&s) {
-        Ok(len) if len > 0 => {
-            let _engine = s.audio_engine.lock().unwrap();
+        Ok(len) => {
             Ok(Json(serde_json::json!({
                 "switched": req.name,
                 "track_count": len,
             })))
         }
-        Ok(_) => Err((StatusCode::NOT_FOUND, format!("Playlist '{}' not found or empty", req.name))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }

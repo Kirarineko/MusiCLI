@@ -53,7 +53,7 @@ All audio playback goes through Rust (`src-tauri/src/audio/`):
 - **output.rs** — cpal output stream. Reads from ring buffer → sends to audio device.
 - **engine.rs** — State machine coordinating decoder, output, seek, volume.
 - **Two modes:**
-  - `audio mode wasapi` — cpal WASAPI Shared (default, system mixer)
+  - `audio mode normal` — cpal WASAPI Shared (default, system mixer)
   - `audio mode asio` — cpal ASIO (exclusive, requires ASIO drivers)
 
 Frontend polls `get_position()` every 100ms for progress updates and lyrics sync.
@@ -62,13 +62,19 @@ Frontend polls `get_position()` every 100ms for progress updates and lyrics sync
 
 All frontend↔backend communication goes through `src/bridge/index.ts` (IBridge interface).
 - `src/bridge/tauri.ts` — Tauri implementation using invoke() and plugin APIs
+- `src/bridge/http.ts` — fetch() wrapper for REST API (browser dev mode / external)
+- `src/bridge/hybrid.ts` — auto-detects Tauri vs browser; in Tauri context routes only audio engine methods via HTTP when the server is running
 - `initBridge()` auto-detects environment and loads the appropriate bridge
 
 ### Command System
 
 `src/commands/registry.ts` — Flat command registry. `register(name, aliases, handler, helpKey)` stores commands keyed by lowercase name/alias.
 
-`src/commands/handlers.ts` — All commands defined here. Uses module-level `_ctx: CommandContext` set by `setCommandContext()`. The `CommandContext` bundles functions from all four contexts.
+`src/commands/handlers/` — All commands defined here, split by concern:
+- `index.ts` — `CommandContext` interface, shared helpers, `registerAllCommands()`
+- `playback.ts`, `playlist.ts`, `appearance.ts`, `lyrics.ts`, `sync.ts`, `system.ts`
+
+Uses module-level `_ctx: CommandContext` set by `setCommandContext()`. The `CommandContext` bundles functions from all four contexts.
 
 **CRITICAL**: `registerAllCommands()` is called at **module level** (not in `useEffect`). If called in `useEffect`, Vite HMR resets the module-level `commands` object but the effect never re-runs, silently losing all commands.
 

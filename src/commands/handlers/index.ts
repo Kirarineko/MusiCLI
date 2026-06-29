@@ -68,6 +68,7 @@ export interface CommandContext {
   saveCurrentTheme: (name: string) => void;
   deleteTheme: (name: string) => { success: boolean; error?: string };
   exportTheme: (name: string) => Theme | null;
+  importTheme: (jsonStr: string) => { success: boolean; name?: string; error?: string };
   // Language
   setLangFn: (lang: string) => boolean;
   // Lyrics floating window

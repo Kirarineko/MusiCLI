@@ -70,6 +70,7 @@ mod tests {
 }
 
 pub fn read_config(music_folder: &str, key: &str) -> Result<Option<serde_json::Value>, String> {
+    validate_config_key(key)?;
     let path = config_path(music_folder).join(format!("{}.json", key));
     if !path.exists() {
         return Ok(None);
@@ -80,11 +81,24 @@ pub fn read_config(music_folder: &str, key: &str) -> Result<Option<serde_json::V
 }
 
 pub fn write_config(music_folder: &str, key: &str, data: &serde_json::Value) -> Result<(), String> {
+    validate_config_key(key)?;
     let dir = config_path(music_folder);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}.json", key));
     let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// Reject config keys that could traverse the filesystem (`..`, `/`, `\`).
+/// Only alphanumeric, underscore, and hyphen are permitted.
+fn validate_config_key(key: &str) -> Result<(), String> {
+    if key.is_empty() || key.len() > 64 {
+        return Err("Invalid config key".into());
+    }
+    if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("Invalid config key: only a-z, 0-9, _, - allowed".into());
+    }
+    Ok(())
 }
 
 // ── Music folder persistence ────────────────────────────────────────

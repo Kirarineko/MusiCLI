@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import type { AppSettings, Lang, Theme } from '../types';
 import { darken } from '../utils/color';
 import { getLang, setLang as i18nSetLang } from '../i18n';
@@ -119,25 +119,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const applyTheme = useCallback((name: string): boolean => {
     const theme = loadThemeData().find(t => t.name === name);
     if (!theme) return false;
+    const hasImg = !!theme['bg-img-data'];
     const partial: Partial<AppSettings> = {
       bg: theme.bg, fg: theme.fg, 'fg-dim': theme['fg-dim'],
       'fg-bright': theme['fg-bright'], accent: theme.accent,
       lyric: theme.lyric, line: theme.line, 'bg-blur': theme['bg-blur'],
       fontSize: theme.fontSize, fontWeight: theme.fontWeight,
       customFont: theme.customFont || '', customFontData: theme.customFontData || '',
+      // Persist bg-img-data so the themed background survives reloads.
+      'bg-img-data': theme['bg-img-data'] || '',
+      // Clear the bg-img file path when applying a theme (data-URL takes over).
+      'bg-img': hasImg ? '' : '',
     };
-    if (theme['bg-img-data']) {
-      const ext = theme['bg-img-data'].startsWith('/9j/') ? 'jpg' :
-                  theme['bg-img-data'].startsWith('iVBOR') ? 'png' :
-                  theme['bg-img-data'].startsWith('R0lG') ? 'gif' :
-                  theme['bg-img-data'].startsWith('UklGR') ? 'webp' : 'jpg';
-      document.documentElement.style.setProperty('--bg-img', `url(data:image/${ext};base64,${theme['bg-img-data']})`);
-      partial['bg-img'] = '';
-    } else {
-      partial['bg-img'] = '';
-      partial['bg-img-data'] = '';
-      document.documentElement.style.setProperty('--bg-img', 'none');
-    }
+    // saveSettings merges this partial into current settings and runs applyCssVars,
+    // which reads bg-img-data and sets --bg-img accordingly.
     saveSettings(partial);
     return true;
   }, [saveSettings]);
@@ -200,22 +195,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const currentLang = getLang();
 
+  const value = useMemo<SettingsContextValue>(() => ({
+    settings: getCurrentSettings(),
+    themes: loadThemeData(),
+    saveSettings,
+    resetSettings,
+    lang: currentLang,
+    setLang: setLangFn,
+    saveCurrentTheme,
+    applyTheme,
+    deleteTheme,
+    exportTheme,
+    importTheme: importThemeFromJson,
+    themeNames,
+    getTheme,
+  }), [getCurrentSettings, saveSettings, resetSettings, setLangFn,
+       saveCurrentTheme, applyTheme, deleteTheme, exportTheme,
+       importThemeFromJson, themeNames, getTheme, currentLang]);
+
   return (
-    <SettingsContext.Provider value={{
-      settings: getCurrentSettings(),
-      themes: loadThemeData(),
-      saveSettings,
-      resetSettings,
-      lang: currentLang,
-      setLang: setLangFn,
-      saveCurrentTheme,
-      applyTheme,
-      deleteTheme,
-      exportTheme,
-      importTheme: importThemeFromJson,
-      themeNames,
-      getTheme,
-    }}>
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

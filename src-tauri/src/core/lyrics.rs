@@ -54,7 +54,9 @@ pub fn read_lrc_offsets(lrc_dir: &str) -> Result<HashMap<String, i64>, String> {
 }
 
 pub fn write_lrc_offset(lrc_dir: &str, track_name: &str, offset_ms: i64) -> Result<(), String> {
-    let mut offsets = read_lrc_offsets(lrc_dir).unwrap_or_default();
+    // If the offsets file exists but is corrupt, surface the error instead of
+    // silently overwriting it with an empty map (which would erase all offsets).
+    let mut offsets = read_lrc_offsets(lrc_dir)?;
     if offset_ms == 0 {
         offsets.remove(track_name);
     } else {

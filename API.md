@@ -1,6 +1,6 @@
 # MusicLI HTTP API
 
-HTTP server starts with the application on `127.0.0.1`, port assigned randomly. Check port with `echo $MUSICLI_HTTP_PORT` or `server status` command in the GUI.
+HTTP server starts with the application on `0.0.0.0` (LAN-accessible), port starts from 52013 and increments if occupied (52013 → 52014 → …). Check port with `echo $MUSICLI_HTTP_PORT` or `remote status` command in the GUI.
 
 ## Playback
 
@@ -52,12 +52,12 @@ or resume current:
 ### POST /pause
 Pause playback.
 
-**Response** `204`
+**Response** `200`
 
 ### POST /stop
 Stop playback.
 
-**Response** `204`
+**Response** `200`
 
 ### POST /next
 Play next track. Wraps to first if at end.
@@ -76,7 +76,7 @@ Seek to absolute position in seconds.
 ```json
 { "seconds": 60.5 }
 ```
-**Response** `204`
+**Response** `200`
 
 ### POST /volume
 Set volume (0-100).
@@ -102,6 +102,15 @@ Modes: `normal` (WASAPI/ALSA shared), `asio` (exclusive, requires ASIO feature).
 Get current audio output mode.
 
 **Response** `200` — `"normal"`
+
+### POST /audio-mode
+Set audio output mode (same as `POST /mode`).
+
+**Request**
+```json
+{ "mode": "normal" }
+```
+**Response** `200` — current mode string
 
 ## Play Mode
 
@@ -289,7 +298,7 @@ Write a config file.
 
 **Request body** — any JSON value to write
 
-**Response** `204`
+**Response** `200`
 
 ### PUT /folder
 Set the music folder path used by config, lyrics, and playlist endpoints.
@@ -298,7 +307,7 @@ Set the music folder path used by config, lyrics, and playlist endpoints.
 ```json
 { "path": "/home/user/Music" }
 ```
-**Response** `204`
+**Response** `200`
 
 The path is persisted to `~/.config/musicli/music_folder` for subsequent starts.
 
@@ -316,9 +325,7 @@ Search for LRC file matching an audio track.
 or `{ "lrc_path": null }` if not found.
 
 ### GET /lyrics/offsets
-Read LRC offset overrides.
-
-**Query** `?lrc_dir=/music/lrc/`
+Read LRC offset overrides. `lrc_dir` is derived server-side from `{music_folder}/lrc` — no query parameters required.
 
 **Response** `200`
 ```json
@@ -326,13 +333,13 @@ Read LRC offset overrides.
 ```
 
 ### POST /lyrics/offsets
-Set LRC offset for a track (0 = clear).
+Set LRC offset for a track (0 = clear). `lrc_dir` is derived server-side from `{music_folder}/lrc` — do not send it.
 
 **Request**
 ```json
-{ "lrc_dir": "/music/lrc/", "track_name": "song.lrc", "offset_ms": 500 }
+{ "track_name": "song.lrc", "offset_ms": 500 }
 ```
-**Response** `204`
+**Response** `200`
 
 ### GET /lyrics/parse
 Search and parse LRC file, return time-stamped lines.
@@ -358,7 +365,7 @@ Export playlists to a ZIP file.
 ```
 Omit `playlist_names` or leave empty to export all playlists.
 
-**Response** `204`
+**Response** `200`
 
 ### POST /sync/import
 Import playlists from a ZIP file (reads `playlists.json` inside).

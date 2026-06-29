@@ -15,7 +15,7 @@ let currentLang: Lang = initLang();
 export function t(key: string, vars: Record<string, string | number> = {}): string {
   let text: string = (dict[currentLang]?.[key]) ?? (dict.en[key] ?? key);
   for (const [k, v] of Object.entries(vars)) {
-    text = text.replace(`{${k}}`, String(v));
+    text = text.replaceAll(`{${k}}`, String(v));
   }
   return text;
 }

@@ -31,11 +31,20 @@ export function registerPlaylistCommands() {
     const files = await getBridge().selectFiles();
     if (files.length === 0) { c.printLine(t('noFiles'), 'info'); return; }
     c.addTracksToCurrent(files);
-    const fp = c.playIndex(c.playlist.indexOf(files[0]));
-    if (fp) {
-      const meta = await readMetadata(fp);
-      if (meta) { printNowPlaying(meta); await c.loadLRC(fp); }
-    }
+    // c.playlist is a snapshot from before addTracksToCurrent, so indexOf
+    // would return -1. Defer the play call so the player state has updated.
+    const firstFile = files[0];
+    setTimeout(async () => {
+      const c2 = ctx();
+      const idx = c2.playlist.indexOf(firstFile);
+      if (idx >= 0) {
+        const fp = c2.playIndex(idx);
+        if (fp) {
+          const meta = await readMetadata(fp);
+          if (meta) { printNowPlaying(meta); await c2.loadLRC(fp); }
+        }
+      }
+    }, 0);
     c.printLine(t('addedFiles', { n: files.length }), 'info');
   }, 'helpOpen');
 
@@ -97,10 +106,11 @@ export function registerPlaylistCommands() {
       const name = getFileName(trackPath);
       c.printKV(t('trackInfoTitle') + ': ' + name, [[t('trackPath'), trackPath]]);
       const inPls = c.getPlaylistsForTrack(trackPath);
-      c.printLine(t('trackInPlaylists') + ': ' + (inPls.length > 0 ? inPls.join(', ') : '-'), 'info');
+      // Escape playlist names — they are user-controlled and flow into SafeHtml.
+      c.printLine(t('trackInPlaylists') + ': ' + (inPls.length > 0 ? inPls.map(escapeHtml).join(', ') : '-'), 'info');
       const allPls = c.listAllPlaylists().map(p => p.name);
       const notIn = allPls.filter(n => !inPls.includes(n));
-      if (notIn.length > 0) c.printLine(t('trackNotInPlaylists') + ': ' + notIn.join(', '), 'dim');
+      if (notIn.length > 0) c.printLine(t('trackNotInPlaylists') + ': ' + notIn.map(escapeHtml).join(', '), 'dim');
     };
 
     const resolveTarget = (target: string, onSingle: (fp: string) => void) => {

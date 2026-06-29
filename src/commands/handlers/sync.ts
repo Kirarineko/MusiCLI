@@ -4,6 +4,7 @@ import { t } from '../../i18n';
 import { getBridge } from '../../bridge';
 import { getStoredSettings } from '../../contexts/SettingsContext';
 import { hasError } from '../../utils/guards';
+import { escapeHtml } from '../../utils/format';
 
 export function registerSyncCommands() {
   register('sync', ['share'], async (args) => {
@@ -245,12 +246,15 @@ export function registerSyncCommands() {
         if (!filePath) return;
         const result = await getBridge().readFile(filePath);
         if (hasError(result) || !result) { c.printLine(t('themeImportError'), 'error'); return; }
-        try {
-          const th = JSON.parse(result);
-          if (!th.name) { c.printLine(t('themeImportError'), 'error'); return; }
-          c.saveCurrentTheme(th.name);
-          c.printLine(t('syncThemeImported', { name: th.name }), 'success');
-        } catch { c.printLine(t('themeImportError'), 'error'); }
+        // Use importTheme to actually apply the imported colors (not saveCurrentTheme
+        // which would save the *current* settings under the imported name).
+        const importResult = c.importTheme(result);
+        if (importResult.success && importResult.name) {
+          c.applyTheme(importResult.name);
+          c.printLine(t('syncThemeImported', { name: importResult.name }), 'success');
+        } else {
+          c.printLine(t('themeImportError'), 'error');
+        }
       } else if (/^\d+$/.test(action)) {
         const idx = parseInt(action, 10) - 1;
         const names = c.themeNames();
@@ -263,9 +267,13 @@ export function registerSyncCommands() {
         c.printLine(`<cmd>${t('themeList')} (${names.length})</cmd>`, 'accent');
         for (let i = 0; i < names.length; i++) {
           const th = c.getTheme(names[i]);
-          const fgSpan = `<span style="color:${th?.fg ?? '#fff'}">text</span>`;
-          const accentSpan = `<span style="color:${th?.accent ?? '#888'}">accent</span>`;
-          c.printLine(`  ${i + 1}. ${names[i]}  [${fgSpan}  ${accentSpan}]`);
+          // Escape theme name and color values to prevent XSS via SafeHtml.
+          const safeName = escapeHtml(names[i]);
+          const safeFg = escapeHtml(th?.fg ?? '#fff');
+          const safeAccent = escapeHtml(th?.accent ?? '#888');
+          const fgSpan = `<span style="color:${safeFg}">text</span>`;
+          const accentSpan = `<span style="color:${safeAccent}">accent</span>`;
+          c.printLine(`  ${i + 1}. ${safeName}  [${fgSpan}  ${accentSpan}]`);
         }
         c.printLine(t('themeSwitchHint'), 'dim');
       } else {

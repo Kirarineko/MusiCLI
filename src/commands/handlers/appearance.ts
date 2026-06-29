@@ -44,7 +44,7 @@ function handleColor(args: string[]) {
     return;
   }
   const color = args[1];
-  const validHex = /^#[0-9a-fA-F]{3,8}$/.test(color);
+  const validHex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color);
   const validFunc = /^rgba?\s*\(/i.test(color);
   if (!validHex && !validFunc) {
     c.printLine(t('colorInvalid'), 'error');

@@ -24,13 +24,13 @@ export function registerLyricsCommands() {
       await c.setLyricsTerminal(false);
       c.printLine(t('lyricsOff'), 'info');
     } else if (sub === 'accent') {
-      if (!rest || !/^#[0-9a-fA-F]{3,8}$/.test(rest)) {
+      if (!rest || !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(rest)) {
         c.printLine(t('lyricColorUsage'), 'info'); return;
       }
       c.saveSettings({ lyricsAccent: rest });
       c.printLine(t('lyricAccentSet', { hex: rest }), 'success');
     } else if (sub === 'fg') {
-      if (!rest || !/^#[0-9a-fA-F]{3,8}$/.test(rest)) {
+      if (!rest || !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(rest)) {
         c.printLine(t('lyricColorUsage'), 'info'); return;
       }
       c.saveSettings({ lyricsFg: rest });

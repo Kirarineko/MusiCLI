@@ -114,9 +114,34 @@ pub fn extract_zip(zip_path: String, dest_dir: String) -> Result<(), String> {
 
     let file = fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    // Canonicalize the destination directory so we can verify every extracted
+    // entry stays inside it (Zip Slip protection).
+    let dest_canon = fs::canonicalize(&dest_dir)
+        .or_else(|_| {
+            // dest_dir may not exist yet — create it then canonicalize.
+            fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+            fs::canonicalize(&dest_dir).map_err(|e| e.to_string())
+        })?;
+
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
-        let path = std::path::Path::new(&dest_dir).join(entry.name());
+        let raw_name = entry.name();
+        // Reject absolute paths and parent traversal in the entry name itself.
+        if raw_name.starts_with('/') || raw_name.starts_with('\\')
+            || raw_name.contains("..")
+            || raw_name.chars().next().map(|c| c.is_ascii() && (c as u32) > 1 && (c as u32) < 32).unwrap_or(false)
+        {
+            return Err(format!("Unsafe entry name in ZIP: {}", raw_name));
+        }
+        let path = dest_canon.join(raw_name);
+
+        // Verify the resolved path is still inside dest_dir (handles symlink tricks too).
+        let parent = path.parent().unwrap_or(std::path::Path::new(""));
+        if !parent.starts_with(&dest_canon) {
+            return Err(format!("Entry escapes destination directory: {}", raw_name));
+        }
+
         if entry.is_dir() {
             fs::create_dir_all(&path).map_err(|e| e.to_string())?;
         } else {
@@ -124,9 +149,13 @@ pub fn extract_zip(zip_path: String, dest_dir: String) -> Result<(), String> {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
             let mut out = fs::File::create(&path).map_err(|e| e.to_string())?;
-            let mut buf = Vec::new();
-            entry.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-            out.write_all(&buf).map_err(|e| e.to_string())?;
+            // Stream in chunks instead of loading the whole entry into memory.
+            let mut buf = vec![0u8; 64 * 1024];
+            loop {
+                let n = entry.read(&mut buf).map_err(|e| e.to_string())?;
+                if n == 0 { break; }
+                out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+            }
         }
     }
     Ok(())
@@ -140,7 +169,8 @@ pub fn remote_start() -> Result<String, String> {
     if port.is_empty() || port == "0" {
         return Err("Remote not started".into());
     }
-    Ok(format!("Remote API on http://127.0.0.1:{}", port))
+    let host = std::env::var("MUSICLI_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    Ok(format!("Remote API on http://{}:{}", host, port))
 }
 
 #[tauri::command]
@@ -154,7 +184,8 @@ pub fn remote_status() -> Result<String, String> {
     if port.is_empty() || port == "0" {
         Ok("Not running".into())
     } else {
-        Ok(format!("Remote API on http://127.0.0.1:{}", port))
+        let host = std::env::var("MUSICLI_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+        Ok(format!("Remote API on http://{}:{}", host, port))
     }
 }
 
