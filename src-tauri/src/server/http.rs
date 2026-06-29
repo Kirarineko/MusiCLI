@@ -1,6 +1,8 @@
 use axum::{
+    body::Body,
     extract::{Query, State as AxumState},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
+    response::Response,
     routing::{get, post, put},
     Json, Router,
 };
@@ -9,9 +11,11 @@ use tower_http::cors::CorsLayer;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::io::ReaderStream;
 
 use crate::audio::AudioMode;
 use crate::lrc_parser;
@@ -97,6 +101,8 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/lyrics/parse", get(parse_lyrics))
         .route("/files/list", get(list_dir_files))
         .route("/files/read", get(read_file_base64))
+        .route("/stream", get(stream))
+        .route("/stream/info", get(stream_info))
         .route("/sync/export", post(export_sync))
         .route("/sync/import", post(import_sync))
         .route("/folder", put(set_folder))
@@ -169,6 +175,7 @@ async fn play(
     let mut engine = s.audio_engine.lock().unwrap();
     engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     *s.current_index.lock().unwrap() = Some(idx);
+
     let dur = engine.get_duration();
     let pos = engine.get_position();
     let plen = s.playlist.lock().unwrap().len();
@@ -197,6 +204,7 @@ async fn stop(state: AxumState<SharedState>) -> Result<StatusCode, (StatusCode, 
     let s = state.lock().unwrap();
     let mut engine = s.audio_engine.lock().unwrap();
     engine.stop();
+
     Ok(StatusCode::OK)
 }
 
@@ -244,6 +252,7 @@ async fn next_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse
                 let mut engine = s.audio_engine.lock().unwrap();
                 engine.stop();
                 *s.current_index.lock().unwrap() = None;
+            
                 let plen = playlist.len();
                 return Ok(Json(StatusResponse {
                     playing: false,
@@ -265,6 +274,7 @@ async fn next_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse
     let mut engine = s.audio_engine.lock().unwrap();
     engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     *s.current_index.lock().unwrap() = Some(idx);
+
     let plen = s.playlist.lock().unwrap().len();
     Ok(Json(StatusResponse {
         playing: true,
@@ -311,6 +321,7 @@ async fn prev_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse
     let mut engine = s.audio_engine.lock().unwrap();
     engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     *s.current_index.lock().unwrap() = Some(idx);
+
     let plen = s.playlist.lock().unwrap().len();
     Ok(Json(StatusResponse {
         playing: true,
@@ -597,6 +608,213 @@ async fn read_file_base64(
     crate::core::files::read_file_base64(&q.path)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+// ── Stream ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct StreamQuery {
+    /// Explicit file path to stream (file mode: Range support, original format).
+    path: Option<String>,
+    /// Live stream of the current playback (real-time PCM WAV, auto-syncs
+    /// position/song-changes/pause). Cannot be combined with `path`.
+    #[serde(default)]
+    current: bool,
+    /// Force download (Content-Disposition: attachment) instead of inline.
+    /// Only valid with `path`, not `current`.
+    #[serde(default)]
+    download: bool,
+}
+
+/// Map an audio file extension to its MIME type.
+fn audio_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("mp3") => "audio/mpeg",
+        Some("flac") => "audio/flac",
+        Some("wav") => "audio/wav",
+        Some("ogg") => "audio/ogg",
+        Some("m4a") => "audio/mp4",
+        Some("wma") => "audio/x-ms-wma",
+        _ => "application/octet-stream",
+    }
+}
+
+pub(crate) fn validate_audio_in_folder(path: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
+    if music_folder.is_empty() {
+        return Err((StatusCode::FORBIDDEN, "music_folder not configured".into()));
+    }
+    let mf_canon = fs::canonicalize(music_folder)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("music_folder: {}", e)))?;
+    let canon = fs::canonicalize(path)
+        .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found: {}", e)))?;
+    if !canon.starts_with(&mf_canon) {
+        return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));
+    }
+    if !crate::core::files::is_audio_file(&canon) {
+        return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
+    }
+    Ok(canon)
+}
+
+/// Parse a `Range: bytes=...` header into (start, end_inclusive). `end` is
+/// clamped to `total - 1`. Returns None for unparseable / unsupported ranges.
+fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
+    let s = header.strip_prefix("bytes=")?;
+    let (start_s, end_s) = s.split_once('-')?;
+    match (start_s.is_empty(), end_s.is_empty()) {
+        // bytes=-N : last N bytes
+        (true, false) => {
+            let n: u64 = end_s.parse().ok()?;
+            if n == 0 || total == 0 {
+                return None;
+            }
+            let start = total.saturating_sub(n);
+            Some((start, total - 1))
+        }
+        // bytes=N- : from N to end
+        (false, true) => {
+            let start: u64 = start_s.parse().ok()?;
+            if start >= total {
+                return None;
+            }
+            Some((start, total - 1))
+        }
+        // bytes=N-M : explicit range
+        (false, false) => {
+            let start: u64 = start_s.parse().ok()?;
+            let end: u64 = end_s.parse().ok()?;
+            if start > end || start >= total {
+                return None;
+            }
+            Some((start, end.min(total - 1)))
+        }
+        _ => None,
+    }
+}
+
+async fn stream(
+    state: AxumState<SharedState>,
+    Query(q): Query<StreamQuery>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, String)> {
+    // Live mode: real-time PCM WAV stream of the current playback.
+    if q.current {
+        return super::live::live_stream(state.0.clone());
+    }
+
+    // File mode: stream a specific file with Range support.
+    let path_str = if let Some(p) = q.path {
+        p
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "Provide 'path' or 'current=true'".into()));
+    };
+
+    if path_str.is_empty() {
+        return Err((StatusCode::NOT_FOUND, "Empty path".into()));
+    }
+
+    // Security: must be an audio file inside music_folder.
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let canon = validate_audio_in_folder(&path_str, &mf)?;
+
+    // Open file and read total length.
+    let file = tokio::fs::File::open(&canon)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, format!("Open: {}", e)))?;
+    let total = file
+        .metadata()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Metadata: {}", e)))?
+        .len();
+
+    let content_type = audio_content_type(&canon);
+    let filename = canon
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("audio")
+        .to_string();
+
+    // Parse Range header (optional).
+    let range_str = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let (start, end, partial) = match range_str.as_deref() {
+        Some(r) => match parse_range(r, total) {
+            Some((st, en)) => (st, en, true),
+            None => (0, total.saturating_sub(1), false),
+        },
+        None => (0, total.saturating_sub(1), false),
+    };
+
+    let content_length = if total == 0 { 0 } else { end - start + 1 };
+
+    // Seek to start and wrap in a length-limited stream.
+    let mut file = file;
+    if total > 0 {
+        file.seek(std::io::SeekFrom::Start(start))
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Seek: {}", e)))?;
+    }
+    let body = Body::from_stream(ReaderStream::new(file.take(content_length)));
+
+    // Build response.
+    let disposition = if q.download {
+        format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""))
+    } else {
+        "inline".to_string()
+    };
+
+    let mut builder = Response::builder()
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_LENGTH, content_length.to_string())
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_DISPOSITION, disposition);
+
+    if total > 0 {
+        builder = builder.header(
+            header::CONTENT_RANGE,
+            format!("bytes {}-{}/{}", start, end, total),
+        );
+    }
+
+    let status = if partial && total > 0 {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
+
+    builder
+        .status(status)
+        .body(body)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+// ── Stream Info (SSE) ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct StreamInfoQuery {
+    /// Number of upcoming lyric lines to include in each `lyric` event.
+    #[serde(default)]
+    next: Option<usize>,
+}
+
+async fn stream_info(
+    state: AxumState<SharedState>,
+    Query(q): Query<StreamInfoQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    let next = q.next.unwrap_or(crate::server::live::DEFAULT_NEXT_LYRIC_COUNT);
+    super::live::live_info(state.0.clone(), next)
 }
 
 // ── Sync ────────────────────────────────────────────────────────────

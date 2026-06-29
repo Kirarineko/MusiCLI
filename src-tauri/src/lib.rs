@@ -13,24 +13,15 @@ pub mod server;
 pub mod server_state;
 
 #[cfg(feature = "gui")]
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "gui")]
 use tauri::Manager;
-#[cfg(feature = "gui")]
-use audio::engine::AudioEngine;
 
 #[cfg(feature = "gui")]
-pub struct AppState {
-    pub audio_engine: Mutex<AudioEngine>,
-}
-
-#[cfg(feature = "gui")]
-pub fn run_gui() {
+pub fn run_gui(state: Arc<Mutex<server_state::ServerState>>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState {
-            audio_engine: Mutex::new(AudioEngine::new()),
-        })
+        .manage(state)
         .setup(|app| {
             // Inject the HTTP server port into the frontend so the hybrid
             // bridge can auto-discover and connect to the HTTP API.

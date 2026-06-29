@@ -2,6 +2,8 @@ import { memo, createElement, type ElementType } from 'react';
 
 const ALLOWED_TAGS = ['cmd', 'kv', 'list', 'span', 'div', 'br'];
 
+const ALLOWED_CLASSES = ['sep-line', 'imode-cursor'];
+
 interface SafeHtmlProps {
   html: string;
   className?: string;
@@ -47,6 +49,13 @@ function parseSafeHtml(html: string): string {
         }
         return `<${tag}>`;
       },
+    );
+    // Opening tag with a single class attribute: <tag class="name">
+    // Only safelisted class names are allowed to prevent attribute-breakout XSS.
+    const classAlt = ALLOWED_CLASSES.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    escaped = escaped.replace(
+      new RegExp(`&lt;${tag}\\s+class=("|')(${classAlt})\\1&gt;`, 'g'),
+      (_m, _q, className) => `<${tag} class="${className}">`,
     );
     // Opening tags without attributes: <tag>
     escaped = escaped.replace(

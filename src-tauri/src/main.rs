@@ -39,7 +39,7 @@ fn main() {
     // GUI mode injects the port into the frontend via Tauri's setup hook.
     #[cfg(feature = "gui")]
     if !cli.remote {
-        return musicli_lib::run_gui();
+        return musicli_lib::run_gui(state.clone());
     }
 
     println!("HTTP API: http://{}:{}", cli.bind, port);

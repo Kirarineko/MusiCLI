@@ -1,5 +1,17 @@
 import type { MetadataResult, LyricsUpdateData, LyricsThemeData } from '../types';
 
+export interface PlaybackStatus {
+  playing: boolean;
+  position: number;
+  duration: number;
+  volume: number;
+  mode: string;
+  play_mode: string;
+  current_index: number | null;
+  playlist_len: number;
+  current_track: string | null;
+}
+
 export interface IBridge {
   selectFiles(): Promise<string[]>;
   selectImage(): Promise<string | null>;
@@ -50,6 +62,7 @@ export interface IBridge {
   getAudioMode(): Promise<string>;
   listAudioDevices(): Promise<string[]>;
   setMusicFolder?(path: string): void;
+  getPlaybackStatus(): Promise<PlaybackStatus | { error: string }>;
 }
 
 let _bridge: IBridge | null = null;

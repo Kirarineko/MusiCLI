@@ -24,7 +24,7 @@ impl AtomicF64 {
     fn store(&self, v: f64) {
         self.bits.store(v.to_bits(), Ordering::Relaxed);
     }
-    fn load(&self) -> f64 {
+    pub fn load(&self) -> f64 {
         f64::from_bits(self.bits.load(Ordering::Relaxed))
     }
 }
@@ -233,6 +233,14 @@ impl AudioEngine {
 
     pub fn get_mode(&self) -> AudioMode {
         self.mode
+    }
+
+    pub fn get_current_path(&self) -> &str {
+        &self.current_path
+    }
+
+    pub(crate) fn shared_state(&self) -> Arc<SharedState> {
+        Arc::clone(&self.state)
     }
 
     fn stop_internal(&mut self) {

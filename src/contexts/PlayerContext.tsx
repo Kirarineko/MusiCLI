@@ -1,5 +1,6 @@
 import { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import type { PlayMode, LrcLine } from '../types';
+import type { PlaybackStatus } from '../bridge';
 import { getStoredSettings, SHADOW_PRESETS, useSettings } from './SettingsContext';
 import { usePlaylists } from './PlaylistContext';
 import { saveSettings as saveSettingsToStore } from '../configStore';
@@ -86,6 +87,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const durationRef = useRef(0);
   const currentTimeRef = useRef(0);
   const autoNextGuardRef = useRef(false);
+  const lastLocalActionRef = useRef(0);
 
   const registerLyricPrinter = useCallback((fn: (text: string, className?: string) => void) => {
     lyricPrinterRef.current = fn;
@@ -173,6 +175,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Play a track via Rust audio engine (async, fire-and-forget from sync context)
   const playTrackAsync = useCallback(async (fp: string) => {
+    lastLocalActionRef.current = Date.now();
     try {
       const dur = await getBridge().loadTrack(fp);
       setDuration(dur);
@@ -207,6 +210,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const play = useCallback(() => {
+    lastLocalActionRef.current = Date.now();
     const fp = playlist[currentIndex];
     if (fp) {
       getBridge().audioPlay(fp).then(() => {
@@ -216,6 +220,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [playlist, currentIndex]);
 
   const pause = useCallback(() => {
+    lastLocalActionRef.current = Date.now();
     getBridge().audioPause().then(() => {
       setIsPlaying(false);
     }).catch(() => {});
@@ -230,6 +235,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [isPlaying, play, pause]);
 
   const stop = useCallback(() => {
+    lastLocalActionRef.current = Date.now();
     getBridge().audioStop().then(() => {
       setIsPlaying(false);
       setCurrentTime(0);
@@ -256,11 +262,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [playlist, currentIndex, playIndex]);
 
   const seek = useCallback((secs: number) => {
+    lastLocalActionRef.current = Date.now();
     getBridge().audioSeek(secs).then(() => {
       setCurrentTime(secs);
       currentTimeRef.current = secs;
+      lastPrintedIdxRef.current = getCurrentLineIdx(lyricsLines, secs);
+      lastSentFloatingIdxRef.current = -1;
     }).catch(() => {});
-  }, []);
+  }, [lyricsLines]);
 
   const setVolume = useCallback((v: number) => {
     const vol = Math.max(0, Math.min(100, v));
@@ -349,6 +358,53 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [isPlaying, playlist, currentIndex, playIndex, nextShuffleIndex]);
 
+  // Reconciliation: sync GUI state with backend when external (HTTP API) changes playback.
+  // Polls /status every 1s, but skips for 2s after any local GUI action to avoid races.
+  const playlistRef = useRef(playlist);
+  const currentIndexRef = useRef(currentIndex);
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => { playlistRef.current = playlist; }, [playlist]);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (Date.now() - lastLocalActionRef.current < 2000) return;
+      try {
+        const res = await getBridge().getPlaybackStatus();
+        if ('error' in res) return;
+        const d = res as PlaybackStatus;
+        if (!d || typeof d !== 'object') return;
+
+        // Reconcile current track / index
+        const curTrack = playlistRef.current[currentIndexRef.current];
+        if (d.current_track && d.current_track !== curTrack) {
+          const newIdx = playlistRef.current.indexOf(d.current_track);
+          if (newIdx >= 0 && newIdx !== currentIndexRef.current) {
+            currentIndexRef.current = newIdx;
+            setCurrentIndex(newIdx);
+            if (loadLrcRef.current) loadLrcRef.current(d.current_track);
+          }
+        }
+
+        // Reconcile playing state
+        if (d.playing !== isPlayingRef.current) {
+          isPlayingRef.current = d.playing;
+          setIsPlaying(d.playing);
+        }
+
+        // Reconcile duration
+        if (d.duration > 0 && d.duration !== durationRef.current) {
+          durationRef.current = d.duration;
+          setDuration(d.duration);
+        }
+      } catch {
+        // Bridge not available
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Lyrics methods
   const loadLRC = useCallback(async (mp3Path: string): Promise<boolean> => {
     setLyricsLines([]);
@@ -422,13 +478,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const dur = durationRef.current;
     const trackSwitched = mp3Path !== lrcPath;
     setLrcPath(mp3Path);
-    if (curPos < 0.5 || curPos > dur + 1.0 || trackSwitched) {
-      // Track just started or position is stale — start from beginning.
+    if (trackSwitched) {
+      // Track changed — reset lyric index. Don't reset currentTimeRef to 0;
+      // the 100ms position poll will supply the real position for the new track.
       lastPrintedIdxRef.current = -1;
-      if (trackSwitched) {
-        setCurrentTime(0);
-        currentTimeRef.current = 0;
-      }
+      lastSentFloatingIdxRef.current = -1;
+    } else if (curPos < 0.5 || curPos > dur + 1.0) {
+      lastPrintedIdxRef.current = -1;
     } else {
       const startIdx = getCurrentLineIdx(lines, curPos);
       lastPrintedIdxRef.current = startIdx;
@@ -470,23 +526,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (lyricsTerminalRef.current) {
       const printFn = lyricPrinterRef.current;
       if (!printFn) return;
-      let newIdx = lastPrintedIdxRef.current;
-      for (let i = lastPrintedIdxRef.current + 1; i < lyricsLines.length; i++) {
-        if (lyricsLines[i].time <= time) {
-          newIdx = i;
-        } else break;
-      }
+      const newIdx = getCurrentLineIdx(lyricsLines, time);
+      if (newIdx === lastPrintedIdxRef.current) return;
+
       if (newIdx > lastPrintedIdxRef.current) {
-        // Guard against stale time causing bulk-print on track switch
+        // Forward advance
         if (newIdx - lastPrintedIdxRef.current > 10) {
-          lastPrintedIdxRef.current = newIdx;
-          return;
+          // Large jump (track switch or seek) — just print current line
+          if (newIdx >= 0) printFn(lyricsLines[newIdx].text, 'lyric');
+        } else {
+          for (let i = lastPrintedIdxRef.current + 1; i <= newIdx; i++) {
+            printFn(lyricsLines[i].text, i === newIdx ? 'lyric' : 'dim');
+          }
         }
-        for (let i = lastPrintedIdxRef.current + 1; i <= newIdx; i++) {
-          printFn(lyricsLines[i].text, i === newIdx ? 'lyric' : 'dim');
-        }
-        lastPrintedIdxRef.current = newIdx;
+      } else {
+        // Backward (seek) — can't unprint, but print current line as a marker
+        if (newIdx >= 0) printFn(lyricsLines[newIdx].text, 'lyric');
       }
+      lastPrintedIdxRef.current = newIdx;
     }
   }, [lyricsLines, sendLyricsToFloating]);
 

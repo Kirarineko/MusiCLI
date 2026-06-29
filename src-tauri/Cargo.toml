@@ -62,7 +62,11 @@ chrono = "0.4"
 # Headless / server mode
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
-tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "fs", "io-util"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+bytes = "1"
+futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]

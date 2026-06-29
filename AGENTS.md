@@ -36,7 +36,7 @@ SettingsProvider → PlaylistProvider → PlayerProvider → TerminalProvider �
 ```
 src-tauri/src/
   main.rs           # Entry: starts HTTP server → run_gui() or headless park
-  lib.rs            # Tauri builder + invoke_handler
+  lib.rs            # Tauri builder + invoke_handler, manages shared ServerState
   commands.rs       # Tauri command wrappers → calls core::
   dialog_cmd.rs     # Tauri file dialog commands (gui only)
   lyrics_cmd.rs     # Floating lyrics window commands (gui only)
@@ -56,6 +56,7 @@ src-tauri/src/
     resampler.rs    #   rubato sample rate conversion
   server/
     http.rs         # axum HTTP API (always compiled)
+    live.rs         # Real-time PCM WAV live stream for /stream?current=true
 ```
 
 ### Frontend Command Handlers
@@ -64,16 +65,16 @@ Commands split by concern into `src/commands/handlers/`:
 - `index.ts` — `CommandContext` interface, shared helpers (`playTrack`, `readMetadata`, etc.)
 - `playback.ts`, `playlist.ts`, `appearance.ts`, `lyrics.ts`, `sync.ts`, `system.ts`
 
-Commands register at **module level** (not in `useEffect`) to survive Vite HMR.
+Commands register at **module-level** (not in `useEffect`) to survive Vite HMR.
 
-### Bridge: Tauri invoke (primary), HTTP (external)
+### Bridge: Tauri invoke (primary), HTTP (shared engine)
 
 - GUI communicates via `@tauri-apps/api/core` invoke → Tauri commands in `lib.rs`
 - HTTP server runs on `0.0.0.0` (LAN-accessible) on a random port for external API access
-- The HTTP server and GUI use **independent** audio engines — playing via one does not affect the other
+- The HTTP server and GUI share a **single AudioEngine** in `ServerState`. HTTP API calls directly control GUI playback and vice versa. The GUI frontend reconciles state by polling `/status` every 1s (with a 2s guard after local actions to prevent race conditions).
 - `bridge/tauri.ts` — full bridge with invoke calls for all data operations
 - `bridge/http.ts` — fetch() wrapper for REST API
-- `bridge/hybrid.ts` — auto-detects Tauri vs browser; in Tauri context, only audio engine methods are routed via HTTP (when the server is running); file I/O, config, lyrics, and dialogs always use Tauri invoke
+- `bridge/hybrid.ts` — auto-detects Tauri vs browser; in Tauri context, audio methods are routed via HTTP to the shared engine; file I/O, config, lyrics, and dialogs always use Tauri invoke
 
 ## Gotchas
 
@@ -115,7 +116,7 @@ The same `musicli` binary serves both:
 
 ### SafeHtml attribute allowlist
 
-The `SafeHtml` component in `src/components/SafeHtml.tsx` escapes all HTML then unescapes whitelisted tags. Only a single `style="..."` attribute is permitted, and its value is validated against a property allowlist (`color`, `background-color`, `font-weight`, etc.). All other attributes (including `on*` event handlers) are stripped. Do not add support for arbitrary attributes — this would re-introduce the XSS vector.
+The `SafeHtml` component in `src/components/SafeHtml.tsx` escapes all HTML then unescapes whitelisted tags. Two attributes are permitted: `style="..."` (validated against a CSS property allowlist) and `class="..."` (validated against a class-name safelist: `sep-line`, `imode-cursor`). All other attributes (including `on*` event handlers) are stripped. Do not add support for arbitrary attributes — this would re-introduce the XSS vector.
 
 ### `showMetadata` uses `formatTime()`
 

@@ -2368,10 +2368,12 @@ version = "3.3.3"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "bytes",
  "chrono",
  "clap",
  "cpal",
  "dirs 5.0.1",
+ "futures-util",
  "lofty",
  "rb",
  "regex",
@@ -2384,6 +2386,8 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
  "tower-http",
  "walkdir",
  "zip",
@@ -4491,6 +4495,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

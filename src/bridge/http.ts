@@ -1,4 +1,5 @@
 import type { MetadataResult } from '../types';
+import type { PlaybackStatus } from './index';
 
 let _baseUrl = '';
 
@@ -65,6 +66,7 @@ export function createHttpBridge() {
     setAudioMode: (mode: 'normal' | 'asio') => unwrap(apiPost<string>('/mode', { mode })),
     getAudioMode: () => unwrap(apiGet<string>('/audio-mode')),
     listAudioDevices: () => unwrap(apiGet<string[]>('/devices')),
+    getPlaybackStatus: () => apiGet<PlaybackStatus>('/status'),
 
     // Metadata
     readMetadata: (filePath: string) => unwrap(apiGet<MetadataResult>(`/metadata?path=${encodeURIComponent(filePath)}`)),

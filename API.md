@@ -282,6 +282,121 @@ List available audio output devices.
 ["PipeWire Sound Server", "HDA NVidia, HDMI 1", ...]
 ```
 
+## Stream
+
+### GET /stream
+Stream audio in two modes: **file mode** (stream/download a specific file with Range support) or **live mode** (real-time PCM broadcast of the current playback for "listen together").
+
+**Security:** Only audio files inside the configured `music_folder` are accessible. Paths are canonicalized and checked with `starts_with`.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `path` | string | — | File mode: explicit file path to stream/download |
+| `current` | bool | `false` | Live mode: real-time WAV stream of the current playback. Auto-syncs position, song changes, and pause (sends silence when paused). Cannot be combined with `path` or `download`. |
+| `download` | bool | `false` | File mode only: sets `Content-Disposition: attachment` to force download |
+
+**Headers (file mode only):**
+
+| Header | Description |
+|--------|-------------|
+| `Range` | Optional `bytes=start-end` for partial content (seek) |
+
+**File mode response** `200` (full file) or `206 Partial Content` (with Range):
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `audio/mpeg`, `audio/flac`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/x-ms-wma` |
+| `Content-Length` | Number of bytes in the response |
+| `Content-Range` | `bytes start-end/total` (only with Range request) |
+| `Accept-Ranges` | `bytes` |
+| `Content-Disposition` | `inline` or `attachment; filename="song.mp3"` |
+
+**Live mode response** `200` (chunked transfer, no Content-Length):
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `audio/wav` |
+| `Cache-Control` | `no-store` |
+
+The live stream sends a WAV header (PCM s16) followed by continuous 100ms PCM chunks. The server monitors the shared audio engine in real-time: when the sender seeks, changes songs, or pauses, the stream automatically adjusts (silence frames during pause, seamless file switch on song change, re-seek on position divergence > 2s).
+
+**Errors:**
+
+| Status | Cause |
+|--------|-------|
+| `400` | No source parameter provided |
+| `403` | Path outside `music_folder`, not an audio file, or `music_folder` not configured |
+| `404` | File not found |
+
+**cURL examples:**
+
+```bash
+# Stream a file for playback (file mode, Range support)
+curl "http://127.0.0.1:52013/stream?path=/music/song.mp3" --output song.mp3
+
+# Stream with Range (seek to 60s)
+curl -H "Range: bytes=2631690-" "http://127.0.0.1:52013/stream?path=/music/song.mp3" --output song.mp3
+
+# Download a file
+curl -L "http://127.0.0.1:52013/stream?path=/music/song.mp3&download=1" -o song.mp3
+
+# Live stream of current playback (listen together)
+curl "http://127.0.0.1:52013/stream?current=true" --output live.wav
+```
+
+**HTML playback:**
+```html
+<!-- File mode (seekable) -->
+<audio src="http://127.0.0.1:52013/stream?path=/music/song.mp3" controls></audio>
+
+<!-- Live mode (real-time sync) -->
+<audio src="http://127.0.0.1:52013/stream?current=true" controls></audio>
+```
+
+### GET /stream/info
+Server-Sent Events stream of track metadata, lyrics, and playback state for the current playback. Designed to be used alongside `/stream?current=true` for "listen together" with live lyrics display.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `next` | number | `3` | Number of upcoming lyric lines in each `lyric` event |
+
+**SSE Events:**
+
+| Event | Trigger | Data |
+|-------|---------|------|
+| `track` | Connection + song change | `{ path, title, artist, album, duration, year, genre, bitrate, sample_rate, codec, lyrics: [{time, text}, ...] }` |
+| `lyric` | Current lyric line changes | `{ index, current: "current line", next: ["next line", ...] }` |
+| `state` | Play/pause change + every 1s | `{ playing, position, duration }` |
+| `:keep-alive` | Every 15s (idle) | SSE comment — ignore |
+
+**JavaScript example:**
+```javascript
+const es = new EventSource('http://127.0.0.1:52013/stream/info');
+
+es.addEventListener('track', (e) => {
+  const d = JSON.parse(e.data);
+  console.log('Now playing:', d.title, '—', d.artist);
+  console.log('Lyrics:', d.lyrics.length, 'lines');
+});
+
+es.addEventListener('lyric', (e) => {
+  const d = JSON.parse(e.data);
+  console.log('Current lyric:', d.current);
+  console.log('Next lines:', d.next);
+});
+
+es.addEventListener('state', (e) => {
+  const d = JSON.parse(e.data);
+  console.log('Position:', d.position, '/', d.duration, d.playing ? '▶' : '⏸');
+});
+```
+
+**Security:** Same as `/stream` — only tracks within `music_folder` are reported. Metadata and LRC files are read server-side.
+
 ## Config
 
 ### GET /config
@@ -427,10 +542,21 @@ curl "http://127.0.0.1:34881/config?key=settings"
 curl -X POST http://127.0.0.1:34881/sync/export \
   -H "Content-Type: application/json" \
   -d '{"dest_zip":"/tmp/musicli-export.zip"}'
+
+# Stream audio for playback (supports Range/seek)
+curl "http://127.0.0.1:34881/stream?path=/music/song.mp3" -o song.mp3
+
+# Download audio file
+curl -L "http://127.0.0.1:34881/stream?path=/music/song.mp3&download=1" -o song.mp3
+
+# Stream the current playback (live sync)
+curl "http://127.0.0.1:34881/stream?current=true" -o live.wav
 ```
 
 ## Notes
 
-- The HTTP server and GUI use **independent** audio engines. Playing via HTTP API does not affect GUI playback (and vice versa).
+- The HTTP server and GUI share a **single audio engine**. HTTP API calls directly control GUI playback and vice versa. The GUI frontend polls `/status` every 1s to reconcile state changes from external API calls (song changes, pause/play, etc.).
+- The `/stream?current=true` endpoint provides a real-time PCM WAV live stream of the current playback. It auto-syncs position, song changes, and pause state — suitable for "listen together" scenarios.
+- The `/stream?path=...` endpoint streams files directly with Range support for seekable browser playback.
 - The `music_folder` used by HTTP endpoints is read from `ServerState`, which is currently unset by default. Config and lyrics endpoints may return `null` / empty results if `music_folder` is not configured.
 - All POST/PUT endpoints use `Content-Type: application/json`.
