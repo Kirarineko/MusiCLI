@@ -129,6 +129,10 @@ Single source of truth. Do not redefine it inline. Import from `'../../utils/gua
 
 `SettingsContext.tsx` imports it — no duplicate definition. `SHADOW_PRESETS` lives in `constants/themes.ts` and is re-exported via `SettingsContext.tsx`. `BUILTIN_THEMES` is defined in `configStore.ts` only.
 
+### `connect-src` CSP is required for HTTP API
+
+The CSP in `tauri.conf.json` must explicitly allow `connect-src http://127.0.0.1:* http://localhost:*` (or whatever the HTTP API binds to). Without it, `fetch()` calls to the HTTP API are blocked in **production builds** (CSP is enforced by Tauri's asset protocol), even though `pnpm tauri dev` works fine (Vite dev server doesn't inject CSP headers). The `window.__MUSICLI_PORT__` injection via `window.eval()` from Rust's setup hook bypasses CSP, so the hybrid bridge will detect the port but then fail on every HTTP request.
+
 ### Loading spinner
 
 The app tries to bind the HTTP server starting from port 52013, incrementing if occupied (52013 → 52014 → …). The probe uses `TcpListener::bind("0.0.0.0:PORT")` to test availability, drops the probe, then rebinds inside the tokio runtime. Do not use `tokio::net::TcpListener::from_std()` — it causes Linux socket errors. In GUI mode, the port is injected into the frontend via `window.__MUSICLI_PORT__` in the Tauri `setup` hook so the hybrid bridge can auto-discover the HTTP API.
