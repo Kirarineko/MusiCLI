@@ -1,6 +1,6 @@
 {
   "productName": "MusicLI",
-  "version": "3.3.3",
+  "version": "3.4.0",
   "identifier": "com.kirarineko.musicli",
   "build": {
     "frontendDist": "../dist",
