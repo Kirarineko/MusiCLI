@@ -45,5 +45,6 @@ export const subCompletions: Record<string, string[]> = {
   'audio mode': ['normal', 'wasapi', 'default', 'w', 'asio', 'exclusive', 'a'],
   'aud mode': ['normal', 'wasapi', 'default', 'w', 'asio', 'exclusive', 'a'],
 
-  listen: ['stop'],
+  listen: ['ui', 'stop'],
+  'listen ui': ['default', 'list'],
 };

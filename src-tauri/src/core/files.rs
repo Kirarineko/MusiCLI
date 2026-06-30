@@ -20,6 +20,24 @@ pub fn list_audio_files(dir: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
+pub fn list_html_files(dir: &str) -> Result<Vec<String>, String> {
+    let entries = fs::read_dir(dir).map_err(|e| format!("Cannot read directory: {}", e))?;
+    let mut files: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm"))
+                .unwrap_or(false)
+        })
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    files.sort();
+    Ok(files)
+}
+
 pub fn config_path(music_folder: &str) -> PathBuf {
     Path::new(music_folder).join("config")
 }

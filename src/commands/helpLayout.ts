@@ -46,6 +46,7 @@ export function printHelp(
   printRaw('    sync theme save|load|list|delete|export|import  ' + t('helpSync'));
   printLine('  ' + t('helpGroupSystem'), 'dim');
   printRaw('    listen                ' + t('helpListen'));
+  printRaw('    listen ui             ' + t('helpListenUi'));
   printRaw('    lang <en|zh|ja>       ' + t('helpLang'));
   printRaw('    reset                 ' + t('helpReset'));
   printRaw('    clear                 ' + t('helpClear'));

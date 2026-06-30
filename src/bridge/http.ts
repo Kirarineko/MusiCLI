@@ -73,6 +73,7 @@ export function createHttpBridge() {
 
     // Files
     listAudioFiles: (dirPath: string) => apiGet<string[]>(`/files/list?dir=${encodeURIComponent(dirPath)}`),
+    listListenWebuis: (musicFolder: string) => apiGet<string[]>(`/files/list-html?dir=${encodeURIComponent(musicFolder + '/Listen_WebUI')}`),
     readFileBase64: (filePath: string) => apiGet<string>(`/files/read?path=${encodeURIComponent(filePath)}`),
     readFile: (filePath: string) => apiGet<string>(`/files/read?path=${encodeURIComponent(filePath)}`),
 

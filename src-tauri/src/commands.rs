@@ -24,6 +24,12 @@ pub fn dir_exists(path: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub fn list_listen_webuis(music_folder: String) -> Result<Vec<String>, String> {
+    let dir = std::path::Path::new(&music_folder).join("Listen_WebUI");
+    core::files::list_html_files(&dir.to_string_lossy())
+}
+
+#[tauri::command]
 pub fn read_file(path: String) -> Result<String, String> {
     core::files::read_file(&path)
 }

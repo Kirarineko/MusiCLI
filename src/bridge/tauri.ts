@@ -53,6 +53,13 @@ export const tauriBridge = {
       return { error: String(e) };
     }
   },
+  async listListenWebuis(musicFolder: string): Promise<string[] | { error: string }> {
+    try {
+      return await invoke<string[]>('list_listen_webuis', { musicFolder });
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
   async readFileBase64(path: string): Promise<string | { error: string }> {
     try {
       return await invoke<string>('read_file_base64', { path });

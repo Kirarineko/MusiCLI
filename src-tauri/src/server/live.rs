@@ -266,6 +266,7 @@ struct StateInfo {
     playing: bool,
     position: f64,
     duration: f64,
+    chunk: u64,
 }
 
 /// Entry point: SSE stream of track metadata and playback state.
@@ -357,10 +358,12 @@ fn live_info_producer(
                         let dur = shared.duration_secs.load();
                         let playing = shared.playing.load(Ordering::Relaxed);
                         let pos = audio_position(&shared);
+                        let chunk = shared.audio_chunk_counter.load(Ordering::Relaxed);
                         let state_info = StateInfo {
                             playing,
                             position: pos,
                             duration: dur,
+                            chunk,
                         };
                         let json = serde_json::to_string(&state_info).unwrap_or_default();
                         let event = Event::default().event("state").data(json);
@@ -381,7 +384,8 @@ fn live_info_producer(
             last_playing = playing;
             let dur = shared.duration_secs.load();
             let pos = audio_position(&shared);
-            let state_info = StateInfo { playing, position: pos, duration: dur };
+            let chunk = shared.audio_chunk_counter.load(Ordering::Relaxed);
+            let state_info = StateInfo { playing, position: pos, duration: dur, chunk };
             let json = serde_json::to_string(&state_info).unwrap_or_default();
             let event = Event::default().event("state").data(json);
             if tx.blocking_send(Ok(event)).is_err() {
@@ -393,7 +397,8 @@ fn live_info_producer(
         if iteration.is_multiple_of(INFO_STATE_SYNC_INTERVAL) && iteration > 0 {
             let dur = shared.duration_secs.load();
             let pos = audio_position(&shared);
-            let state_info = StateInfo { playing, position: pos, duration: dur };
+            let chunk = shared.audio_chunk_counter.load(Ordering::Relaxed);
+            let state_info = StateInfo { playing, position: pos, duration: dur, chunk };
             let json = serde_json::to_string(&state_info).unwrap_or_default();
             let event = Event::default().event("state").data(json);
             if tx.blocking_send(Ok(event)).is_err() {

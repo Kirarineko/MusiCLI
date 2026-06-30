@@ -18,6 +18,7 @@ export interface IBridge {
   selectFolder(): Promise<string | null>;
   selectFont(): Promise<string | null>;
   listAudioFiles(dirPath: string): Promise<string[] | { error: string }>;
+  listListenWebuis(musicFolder: string): Promise<string[] | { error: string }>;
   findLrc(mp3Path: string, rootDir: string): Promise<string | null | { error: string }>;
   readLrcOffsets(lrcDir: string): Promise<Record<string, number> | { error: string }>;
   writeLrcOffset(lrcDir: string, trackName: string, offsetMs: number): Promise<{ success?: boolean; error?: string }>;

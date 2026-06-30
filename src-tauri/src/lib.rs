@@ -80,6 +80,7 @@ pub fn run_gui(state: Arc<Mutex<server_state::ServerState>>) {
             commands::list_audio_files,
             commands::read_file_base64,
             commands::dir_exists,
+            commands::list_listen_webuis,
             commands::read_file,
             commands::write_file,
             commands::copy_file,

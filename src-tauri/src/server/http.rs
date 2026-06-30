@@ -2,13 +2,12 @@ use axum::{
     body::Body,
     extract::{Query, State as AxumState},
     http::{header, HeaderMap, StatusCode},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeDir;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -101,15 +100,150 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/lyrics/offsets", get(get_lyrics_offsets).post(set_lyrics_offset))
         .route("/lyrics/parse", get(parse_lyrics))
         .route("/files/list", get(list_dir_files))
+        .route("/files/list-html", get(list_html_files_handler))
         .route("/files/read", get(read_file_base64))
         .route("/stream", get(stream))
         .route("/stream/info", get(stream_info))
         .route("/sync/export", post(export_sync))
         .route("/sync/import", post(import_sync))
         .route("/folder", put(set_folder))
-        .nest_service("/listen", ServeDir::new("assets"))
+        .route("/listen", get(listen_webui_handler))
+        .route("/listen/{*path}", get(listen_webui_handler))
         .with_state(state)
         .layer(CorsLayer::permissive())
+}
+
+// ── Listen WebUI ─────────────────────────────────────────────────────
+
+// Embed built-in assets at compile time so they work regardless of CWD.
+// Cargo tracks include_str! dependencies — editing the files triggers recompilation.
+const DEFAULT_INDEX_HTML: &str = include_str!("../../assets/index.html");
+const MUSICLI_JS: &str = include_str!("../../assets/musicli.js");
+
+async fn listen_webui_handler(
+    state: AxumState<SharedState>,
+    uri: axum::http::Uri,
+) -> Response {
+    let music_folder = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let sub_path = uri.path().strip_prefix("/listen").unwrap_or("").trim_start_matches('/');
+
+    // Prevent path traversal
+    if sub_path.contains("..") || sub_path.starts_with('/') {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    // Try custom webui from Listen_WebUI/
+    if !music_folder.is_empty() {
+        if let Ok(Some(val)) = crate::core::files::read_config(&music_folder, "listen-webui") {
+            if let Some(filename) = val.as_str() {
+                if !filename.is_empty() {
+                    let webui_dir = std::path::Path::new(&music_folder).join("Listen_WebUI");
+                    let file_path = if sub_path.is_empty() {
+                        webui_dir.join(filename)
+                    } else {
+                        webui_dir.join(sub_path)
+                    };
+                    // Inject MUSICLI_JS into root HTML via placeholder
+                    if sub_path.is_empty() {
+                        if let Some(resp) = serve_html_inject(&file_path, &webui_dir, MUSICLI_JS) {
+                            return resp;
+                        }
+                    } else if let Some(resp) = serve_file_if_safe(&file_path, &webui_dir) {
+                        return resp;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to embedded default
+    if sub_path == "musicli.js" || sub_path.is_empty() {
+        let body: Body = if sub_path.is_empty() {
+            let html = match DEFAULT_INDEX_HTML.split_once("<!--MUSICLI_JS-->") {
+                Some((before, after)) => {
+                    format!("{}<script>\n{}\n</script>{}", before, MUSICLI_JS, after)
+                }
+                None => DEFAULT_INDEX_HTML.to_string(),
+            };
+            Body::from(html)
+        } else {
+            Body::from(MUSICLI_JS)
+        };
+        let content_type = if sub_path.is_empty() {
+            "text/html; charset=utf-8"
+        } else {
+            "application/javascript; charset=utf-8"
+        };
+        return Response::builder()
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(body)
+            .unwrap();
+    }
+
+    (StatusCode::NOT_FOUND, "Not found").into_response()
+}
+
+fn serve_file_if_safe(path: &std::path::Path, base: &std::path::Path) -> Option<Response> {
+    let base_canon = base.canonicalize().ok()?;
+    let path_canon = path.canonicalize().ok()?;
+    if !path_canon.starts_with(&base_canon) {
+        return None;
+    }
+    let content = std::fs::read(&path_canon).ok()?;
+    let mime = mime_for_path(&path_canon);
+    Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .body(Body::from(content))
+        .ok()
+}
+
+/// Read an HTML file, inject the JS at the placeholder, and return a Response.
+/// Falls back to serving the file as-is if placeholder is not found.
+fn serve_html_inject(path: &std::path::Path, base: &std::path::Path, js: &str) -> Option<Response> {
+    let base_canon = base.canonicalize().ok()?;
+    let path_canon = path.canonicalize().ok()?;
+    if !path_canon.starts_with(&base_canon) {
+        return None;
+    }
+    let raw = std::fs::read_to_string(&path_canon).ok()?;
+    let html = match raw.split_once("<!--MUSICLI_JS-->") {
+        Some((before, after)) => format!("{}<script>\n{}\n</script>{}", before, js, after),
+        None => raw,
+    };
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(Body::from(html))
+        .ok()
+}
+
+fn mime_for_path(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("html" | "htm") => "text/html; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "application/javascript",
+        Some("json") => "application/json",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        Some("webp") => "image/webp",
+        Some("ico") => "image/x-icon",
+        Some("woff") => "font/woff",
+        Some("woff2") => "font/woff2",
+        Some("ttf") => "font/ttf",
+        Some("otf") => "font/otf",
+        _ => "application/octet-stream",
+    }
 }
 
 #[derive(Serialize)]
@@ -590,6 +724,14 @@ async fn list_dir_files(
     Query(q): Query<DirQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     crate::core::files::list_audio_files(&q.dir)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn list_html_files_handler(
+    Query(q): Query<DirQuery>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    crate::core::files::list_html_files(&q.dir)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }

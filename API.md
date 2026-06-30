@@ -546,17 +546,21 @@ curl -L "http://127.0.0.1:34881/stream?path=/music/song.mp3&download=1" -o song.
 curl "http://127.0.0.1:34881/stream?current=true" -o live.wav
 ```
 
+---
+
 ## Listen Together
 
 ### GET /listen
-Self-contained "listen together" web page. Open in a browser to join a synced listening session with the host.
+"Listen together" web page. By default serves the built-in web page (`assets/index.html`). Open in a browser to join a synced listening session with the host.
 
 The page connects to:
 - `GET /stream?current=true` — real-time WAV audio stream
-- `GET /stream/info?next=3` — SSE metadata + lyrics sync
+- `GET /stream/info` — SSE metadata + lyrics sync
+
+**Custom WebUI:** Place HTML files in `{music_folder}/Listen_WebUI/` and use the `listen ui` command in the GUI terminal to select one. The selected HTML file (and any sibling assets like CSS/JS/images) will be served at `/listen`. Run `listen ui default` to restore the built-in web page.
 
 **Behavior:**
-- Dark-themed terminal-style player UI
+- Dark-themed terminal-style player UI (built-in)
 - Auto-syncs: track info, lyrics (current + next 3 lines), playback state, progress
 - Read-only — guest cannot control playback (no play/pause/seek)
 - MediaSession API integration (system notification bar shows track info)
@@ -564,7 +568,7 @@ The page connects to:
 
 **Usage:** Type `listen` in the GUI terminal to get the shareable URL. Send the link to someone on the same LAN — they open it in any browser.
 
-**Security:** The page only uses read-only endpoints. Audio file paths are validated against `music_folder`.
+**Security:** The page only uses read-only endpoints. Audio file paths are validated against `music_folder`. Custom WebUI files must reside in `{music_folder}/Listen_WebUI/` (path traversal is blocked).
 
 ## Notes
 
