@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MusiCLI 一起听</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a1a;
+  --card: rgba(255, 255, 255, 0.03);
+  --border: rgba(255, 255, 255, 0.06);
+  --text: #e2e8f0;
+  --text2: #94a3b8;
+  --accent: #7c3aed;
+  --green: #22c55e;
+  --bar-bg: rgba(255, 255, 255, 0.08);
+  --bar-fill: #7c3aed;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0a0a1a 100%);
+}
+
+.container {
+  width: 100%;
+  max-width: 400px;
+  padding: 20px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  overflow: hidden;
+}
+
+.header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cover-wrap {
+  padding: 24px 24px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.cover {
+  width: 180px;
+  height: 180px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1e1b4b, #4338ca, #7c3aed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+  color: rgba(255, 255, 255, 0.15);
+  user-select: none;
+  box-shadow: 0 8px 32px rgba(124, 58, 237, 0.15);
+  transition: background 0.6s ease;
+}
+
+.cover.playing {
+  background: linear-gradient(135deg, #4338ca, #7c3aed, #a78bfa);
+}
+
+.track-info {
+  padding: 20px 24px 0;
+  text-align: center;
+}
+
+.track-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.track-meta {
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-wrap {
+  padding: 16px 24px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.time-label {
+  font-size: 11px;
+  color: var(--text2);
+  min-width: 36px;
+  text-align: center;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--bar-bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--bar-fill);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s linear;
+}
+
+.lyrics-wrap {
+  padding: 16px 24px 0;
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.lyric-line {
+  text-align: center;
+  transition: all 0.3s ease;
+  min-height: 22px;
+}
+
+.lyric-current {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.lyric-next {
+  font-size: 13px;
+  color: var(--text2);
+  opacity: 0.7;
+}
+
+.lyric-empty {
+  font-size: 13px;
+  color: var(--text2);
+  opacity: 0.4;
+  font-style: italic;
+}
+
+.status-bar {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text2);
+  transition: background 0.3s;
+}
+
+.status-dot.connected { background: var(--green); }
+.status-dot.playing { background: var(--accent); animation: pulse 1.5s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.autoplay-prompt {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.autoplay-prompt .inner {
+  text-align: center;
+  padding: 32px;
+}
+
+.autoplay-prompt .icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  color: var(--accent);
+}
+
+.autoplay-prompt .text {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.autoplay-prompt .hint {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.autoplay-prompt.hidden { display: none; }
+
+@media (max-width: 480px) {
+  .container { padding: 12px; }
+  .cover { width: 150px; height: 150px; font-size: 40px; }
+}
+</style>
+</head>
+<body>
+<div class="autoplay-prompt" id="autoplay-prompt">
+  <div class="inner">
+    <div class="icon">&#9835;</div>
+    <div class="text">点击任意位置开始播放</div>
+    <div class="hint">浏览器需要用户交互才能播放音频</div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="card">
+    <div class="header">
+      <span>&#9835;</span> MusiCLI 一起听
+    </div>
+    <div class="cover-wrap">
+      <div class="cover" id="cover">&#9835;</div>
+    </div>
+    <div class="track-info">
+      <div class="track-title" id="title">等待主办方播放...</div>
+      <div class="track-meta" id="meta">&nbsp;</div>
+    </div>
+    <div class="progress-wrap">
+      <span class="time-label" id="time-pos">0:00</span>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress"></div>
+      </div>
+      <span class="time-label" id="time-dur">0:00</span>
+    </div>
+    <div class="lyrics-wrap" id="lyrics">
+      <div class="lyric-line lyric-empty">暂无歌词</div>
+    </div>
+    <div class="status-bar">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">连接中...</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var $ = function(s) { return document.querySelector(s); };
+  var audio = null;
+  var es = null;
+  var lyricsData = [];
+  var lyricIdx = -1;
+  var connected = false;
+  var playing = false;
+  var duration = 0;
+  var tickTimer = null;
+  var realPos = 0;
+  var realPosTime = 0;
+
+  function formatTime(s) {
+    if (s == null || isNaN(s) || s < 0) return '0:00';
+    var m = Math.floor(s / 60);
+    var sec = Math.floor(s % 60);
+    return m + ':' + (sec < 10 ? '0' : '') + sec;
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function getLyricIdx(t) {
+    for (var i = lyricsData.length - 1; i >= 0; i--) {
+      if (lyricsData[i].time <= t) return i;
+    }
+    return -1;
+  }
+
+  function updateLyrics() {
+    var el = $('#lyrics');
+    if (lyricsData.length === 0) {
+      el.innerHTML = '<div class="lyric-line lyric-empty">暂无歌词</div>';
+      return;
+    }
+    var html = '';
+    if (lyricIdx >= 0 && lyricIdx < lyricsData.length) {
+      html += '<div class="lyric-line lyric-current">' + escapeHtml(lyricsData[lyricIdx].text) + '</div>';
+    }
+    for (var i = 1; i <= 3; i++) {
+      var ni = lyricIdx + i;
+      if (ni < lyricsData.length) {
+        html += '<div class="lyric-line lyric-next">' + escapeHtml(lyricsData[ni].text) + '</div>';
+      }
+    }
+    if (!html) html = '<div class="lyric-line lyric-empty">暂无歌词</div>';
+    el.innerHTML = html;
+  }
+
+  function updateStatus() {
+    var dot = $('#status-dot');
+    var text = $('#status-text');
+    dot.className = 'status-dot';
+    if (!connected) {
+      text.textContent = '连接中...';
+    } else if (playing) {
+      dot.className = 'status-dot connected playing';
+      text.textContent = '播放中';
+    } else {
+      dot.className = 'status-dot connected';
+      text.textContent = '已暂停';
+    }
+  }
+
+  function tick() {
+    if (!audio) return;
+    // Estimate real position from last state event + elapsed time
+    var t = realPos + (playing ? (Date.now() - realPosTime) / 1000 : 0);
+    if (t < 0) t = 0;
+    if (duration > 0 && t > duration) t = duration;
+
+    if (duration > 0) {
+      $('#time-pos').textContent = formatTime(t);
+      $('#progress').style.width = Math.min(100, t / duration * 100) + '%';
+    }
+
+    if (lyricsData.length > 0) {
+      var idx = getLyricIdx(t);
+      if (idx !== lyricIdx) {
+        lyricIdx = idx;
+        updateLyrics();
+      }
+    }
+  }
+
+  function startStream() {
+    var ts = Date.now();
+
+    // Audio stream with cache-busting
+    audio = new Audio('/stream?current=true&_t=' + ts);
+    audio.volume = 1.0;
+    audio.play().catch(function() {});
+
+    // Tick every 100ms for smooth lyrics + progress
+    tickTimer = setInterval(tick, 100);
+
+    // Reconnect on error
+    audio.addEventListener('error', function() {
+      setTimeout(function() {
+        if (audio) {
+          audio.src = '/stream?current=true&_t=' + Date.now();
+          audio.play().catch(function() {});
+        }
+      }, 3000);
+    });
+
+    // SSE info stream
+    es = new EventSource('/stream/info');
+
+    es.addEventListener('track', function(e) {
+      try {
+        var d = JSON.parse(e.data);
+        var title = d.title || '';
+        var artist = d.artist || '';
+        var album = d.album || '';
+        duration = d.duration || 0;
+        $('#title').textContent = title || '未知曲目';
+        var meta = artist;
+        if (album) meta += ' \u00b7 ' + album;
+        $('#meta').textContent = meta || '\u00a0';
+        $('#time-dur').textContent = formatTime(duration);
+        // Store full lyrics with timestamps for client-side computation
+        lyricsData = d.lyrics || [];
+        lyricIdx = -1;
+        realPos = 0;
+        realPosTime = Date.now();
+        updateLyrics();
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: title, artist: artist, album: album
+          });
+        }
+        connected = true;
+        updateStatus();
+      } catch (err) { /* ignore */ }
+    });
+
+    es.addEventListener('state', function(e) {
+      try {
+        var d = JSON.parse(e.data);
+        playing = d.playing;
+        if (d.duration > 0) duration = d.duration;
+        if (d.position != null) {
+          realPos = d.position;
+          realPosTime = Date.now();
+        }
+        $('#time-dur').textContent = formatTime(duration);
+        if (playing) {
+          $('#cover').classList.add('playing');
+        } else {
+          $('#cover').classList.remove('playing');
+        }
+        connected = true;
+        updateStatus();
+      } catch (err) { /* ignore */ }
+    });
+
+    es.onerror = function() {
+      connected = false;
+      updateStatus();
+    };
+  }
+
+  var prompt = $('#autoplay-prompt');
+  prompt.addEventListener('click', function() {
+    prompt.classList.add('hidden');
+    startStream();
+  });
+
+  document.addEventListener('keydown', function handler() {
+    if (!audio) {
+      prompt.classList.add('hidden');
+      startStream();
+    }
+    document.removeEventListener('keydown', handler);
+  });
+
+  var testAudio = new Audio();
+  testAudio.play().then(function() {
+    prompt.classList.add('hidden');
+    startStream();
+  }).catch(function() {
+    // Need user interaction — prompt is shown
+  });
+
+  updateStatus();
+})();
+</script>
+</body>
+</html>

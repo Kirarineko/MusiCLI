@@ -356,42 +356,35 @@ curl "http://127.0.0.1:52013/stream?current=true" --output live.wav
 ```
 
 ### GET /stream/info
-Server-Sent Events stream of track metadata, lyrics, and playback state for the current playback. Designed to be used alongside `/stream?current=true` for "listen together" with live lyrics display.
+Server-Sent Events stream of track metadata and playback state for the current playback. The `track` event includes the full LRC lyrics with timestamps — clients should compute the current lyric line locally using `audio.currentTime` for optimal sync accuracy.
 
-**Query parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `next` | number | `3` | Number of upcoming lyric lines in each `lyric` event |
+**No query parameters.**
 
 **SSE Events:**
 
 | Event | Trigger | Data |
 |-------|---------|------|
 | `track` | Connection + song change | `{ path, title, artist, album, duration, year, genre, bitrate, sample_rate, codec, lyrics: [{time, text}, ...] }` |
-| `lyric` | Current lyric line changes | `{ index, current: "current line", next: ["next line", ...] }` |
 | `state` | Play/pause change + every 1s | `{ playing, position, duration }` |
 | `:keep-alive` | Every 15s (idle) | SSE comment — ignore |
 
 **JavaScript example:**
 ```javascript
 const es = new EventSource('http://127.0.0.1:52013/stream/info');
+let lyrics = [];
 
 es.addEventListener('track', (e) => {
   const d = JSON.parse(e.data);
-  console.log('Now playing:', d.title, '—', d.artist);
-  console.log('Lyrics:', d.lyrics.length, 'lines');
-});
-
-es.addEventListener('lyric', (e) => {
-  const d = JSON.parse(e.data);
-  console.log('Current lyric:', d.current);
-  console.log('Next lines:', d.next);
+  lyrics = d.lyrics || []; // Store full lyrics with timestamps
 });
 
 es.addEventListener('state', (e) => {
   const d = JSON.parse(e.data);
-  console.log('Position:', d.position, '/', d.duration, d.playing ? '▶' : '⏸');
+  // Client-side lyric tracking using audio.currentTime
+  const audio = document.querySelector('audio');
+  const t = audio.currentTime;
+  const idx = lyrics.findLastIndex(l => l.time <= t);
+  console.log('Current lyric:', idx >= 0 ? lyrics[idx].text : '');
 });
 ```
 
@@ -552,6 +545,26 @@ curl -L "http://127.0.0.1:34881/stream?path=/music/song.mp3&download=1" -o song.
 # Stream the current playback (live sync)
 curl "http://127.0.0.1:34881/stream?current=true" -o live.wav
 ```
+
+## Listen Together
+
+### GET /listen
+Self-contained "listen together" web page. Open in a browser to join a synced listening session with the host.
+
+The page connects to:
+- `GET /stream?current=true` — real-time WAV audio stream
+- `GET /stream/info?next=3` — SSE metadata + lyrics sync
+
+**Behavior:**
+- Dark-themed terminal-style player UI
+- Auto-syncs: track info, lyrics (current + next 3 lines), playback state, progress
+- Read-only — guest cannot control playback (no play/pause/seek)
+- MediaSession API integration (system notification bar shows track info)
+- Auto-reconnect on SSE disconnect
+
+**Usage:** Type `listen` in the GUI terminal to get the shareable URL. Send the link to someone on the same LAN — they open it in any browser.
+
+**Security:** The page only uses read-only endpoints. Audio file paths are validated against `music_folder`.
 
 ## Notes
 

@@ -175,6 +175,7 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 #### 系统
 | 命令 | 说明 |
 |------|------|
+| `listen` | 开启一起听，分享链接 |
 | `remote start\|stop\|status` | HTTP API 状态 |
 | `lang <en\|zh\|ja>` | 切换语言 |
 | `help` | 帮助 |
@@ -275,6 +276,7 @@ curl -X POST http://127.0.0.1:PORT/next
 - **Files**: `/files`, `/metadata`, `/files/read`
 - **Lyrics**: `/lyrics`, `/lyrics/parse`, `/lyrics/offsets`
 - **Config**: `/config`, `/folder`, `/sync/export`, `/sync/import`
+- **Stream**: `/stream`, `/stream/info`, `/listen` (listen together page)
 
 Full API docs: [API.md](./API.md).
 

@@ -74,4 +74,21 @@ export function registerSystemCommands() {
       c.printLine(String(err), 'error');
     }
   }, 'helpRemote');
+
+  register('listen', ['lt'], () => {
+    const c = ctx();
+    const port = (window as unknown as Record<string, number>).__MUSICLI_PORT__;
+    if (!port) {
+      c.printLine('HTTP server not running', 'error');
+      return;
+    }
+    const host = window.location.hostname || '127.0.0.1';
+    const url = `http://${host}:${port}/listen`;
+    c.printLine('一起听已开启：', 'success');
+    c.printRaw(`  <cmd>${url}</cmd>`);
+    c.printRaw('  将链接发送给对方即可加入');
+    c.printRaw('');
+    c.printRaw('  提示：对方需要在同一局域网内');
+    c.printRaw('  如需外网访问，请使用内网穿透工具');
+  }, 'helpListen');
 }

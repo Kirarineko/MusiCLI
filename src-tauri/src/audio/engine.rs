@@ -21,7 +21,7 @@ impl AtomicF64 {
             bits: AtomicU64::new(v.to_bits()),
         }
     }
-    fn store(&self, v: f64) {
+    pub fn store(&self, v: f64) {
         self.bits.store(v.to_bits(), Ordering::Relaxed);
     }
     pub fn load(&self) -> f64 {
@@ -41,6 +41,26 @@ pub(crate) struct SharedState {
     pub seek_request: AtomicI64,
     pub sample_rate: AtomicU32,
     pub channels: AtomicU32,
+    /// Monotonic counter incremented (Release) whenever `load_track` / `play`
+    /// loads a *different* track. Producers Acquire-load this to detect track
+    /// changes without taking the engine lock. All other atomics are written
+    /// *before* the epoch bump, so an Acquire-load of the epoch guarantees the
+    /// reader also observes the matching position / duration / playing /
+    /// sample_rate / current_path state.
+    pub track_epoch: AtomicU64,
+    /// Incremented once per audio chunk sent by `live_producer`.
+    /// Combined with `audio_track_start_chunk` and `audio_track_base_pos` to
+    /// derive the client-side playhead position (`audio_position`) that lags
+    /// the engine by the prebuffer duration — keeping the progress bar aligned
+    /// with what the listener is *actually hearing*.
+    pub audio_chunk_counter: AtomicU64,
+    /// Value of `audio_chunk_counter` when the current track's first chunk
+    /// was sent (track switch) or seeked to a new position.
+    pub audio_track_start_chunk: AtomicU64,
+    /// Base engine position (seconds) of the current audio epoch — 0 for a
+    /// brand-new track, or the engine position after a seek. The live_info
+    /// producer uses this to compute the client-side playhead position.
+    pub audio_track_base_pos: AtomicF64,
 }
 
 impl SharedState {
@@ -54,6 +74,10 @@ impl SharedState {
             seek_request: AtomicI64::new(-1),
             sample_rate: AtomicU32::new(44100),
             channels: AtomicU32::new(2),
+            track_epoch: AtomicU64::new(0),
+            audio_chunk_counter: AtomicU64::new(0),
+            audio_track_start_chunk: AtomicU64::new(0),
+            audio_track_base_pos: AtomicF64::new(0.0),
         }
     }
 }
@@ -84,6 +108,8 @@ impl AudioEngine {
     }
 
     pub fn load_track(&mut self, path: &str) -> Result<f64, String> {
+        let path_changed = path != self.current_path;
+
         self.stop_internal();
 
         let duration = decoder::probe_duration(path)?;
@@ -93,20 +119,23 @@ impl AudioEngine {
             .store(0, Ordering::Relaxed);
         self.state.seek_request.store(-1, Ordering::Relaxed);
         self.current_path = path.to_string();
+        if path_changed {
+            self.state.track_epoch.fetch_add(1, Ordering::Release);
+        }
 
         Ok(duration)
     }
 
     pub fn play(&mut self, path: &str) -> Result<(), String> {
+        let path_changed = path != self.current_path;
         // Save position when resuming the same track (so we don't restart from 0).
-        let saved_pos = if path == self.current_path && self.stream.is_some() {
+        let saved_pos = if !path_changed && self.stream.is_some() {
             self.get_position()
         } else {
             0.0
         };
 
         self.stop_internal();
-        self.current_path = path.to_string();
 
         let (duration, source_sr, channels) = decoder::probe_info(path)?;
         let channels_usize = channels as usize;
@@ -163,6 +192,14 @@ impl AudioEngine {
         stream.play().map_err(|e| e.to_string())?;
         self.stream = Some(stream);
         self.state.playing.store(true, Ordering::Relaxed);
+
+        // Update current_path *and* bump the epoch at the very end so that a
+        // producer that observes the new epoch (Acquire) also observes the
+        // already-committed position / duration / playing / sample_rate values.
+        self.current_path = path.to_string();
+        if path_changed {
+            self.state.track_epoch.fetch_add(1, Ordering::Release);
+        }
 
         Ok(())
     }

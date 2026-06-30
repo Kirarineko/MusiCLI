@@ -24,12 +24,23 @@ use crate::server_state::ServerState;
 type SharedAppState = Arc<Mutex<ServerState>>;
 
 const CHUNK_DURATION_SECS: f64 = 0.1;
-const PREBUFFER_CHUNKS: usize = 20;
-const SEEK_CHECK_INTERVAL: usize = 5;
+const PREBUFFER_CHUNKS: usize = 25;
 const INFO_POLL_INTERVAL_MS: u64 = 200;
-const INFO_PATH_CHECK_INTERVAL: usize = 5;
 const INFO_STATE_SYNC_INTERVAL: usize = 5;
-pub const DEFAULT_NEXT_LYRIC_COUNT: usize = 3;
+
+/// Client-side playhead position (seconds) derived from the audio chunk
+/// counter.  Lags behind the engine position by the prebuffer duration so the
+/// progress bar stays aligned with what the listener is *actually hearing*
+/// rather than with the (5 s ahead) engine state.
+fn audio_position(shared: &Arc<SharedState>) -> f64 {
+    let counter = shared.audio_chunk_counter.load(Ordering::Relaxed);
+    let start = shared.audio_track_start_chunk.load(Ordering::Relaxed);
+    let base = shared.audio_track_base_pos.load();
+    let raw = base
+        + (counter.saturating_sub(start) as f64) * CHUNK_DURATION_SECS
+        - (PREBUFFER_CHUNKS as f64 * CHUNK_DURATION_SECS);
+    if raw < 0.0 { 0.0 } else { raw }
+}
 
 /// Entry point: set up a live WAV stream of the current playback.
 pub fn live_stream(state: SharedAppState) -> Result<Response, (StatusCode, String)> {
@@ -72,6 +83,9 @@ fn live_producer(
     tx: mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) {
     let mut current_path = String::new();
+    // u64::MAX forces the first iteration to always fire the track-change
+    // branch so that an already-playing track is picked up on (re)connect.
+    let mut last_epoch: u64 = u64::MAX;
     let mut decoder: Option<LiveDecoder> = None;
     let mut header_sent = false;
     let mut stream_pos: f64 = 0.0;
@@ -79,6 +93,13 @@ fn live_producer(
     let mut wav_channels: u16 = 2;
     let mut chunk_idx: usize = 0;
     let mut send_buf: Vec<u8> = Vec::with_capacity(64 * 1024);
+    // True once the prebuffer burst has finished and `stream_pos` has been
+    // re-baselined to `engine_pos`. Until this is set the divergence-based
+    // seek check (step 2) is suppressed — otherwise the burst sends 5s of
+    // audio in ~0.5s of wall time while the engine only advances ~0.5s,
+    // producing a >2s "divergence" that would falsely rewind the decoder
+    // and cause the client to hear ~0.5s of audio twice.
+    let mut burst_aligned = false;
 
     loop {
         if tx.is_closed() {
@@ -87,8 +108,12 @@ fn live_producer(
 
         let chunk_start = Instant::now();
 
-        // 1. Check current_path for song changes (every 5 chunks to reduce lock contention).
-        if chunk_idx.is_multiple_of(SEEK_CHECK_INTERVAL) || decoder.is_none() {
+        // 1. Detect track changes via epoch (atomic read every chunk, no lock
+        //    unless the epoch actually changed). Also retries when the decoder
+        //    is missing (e.g. open failure on a previous attempt).
+        let epoch = shared.track_epoch.load(Ordering::Acquire);
+        if epoch != last_epoch || decoder.is_none() {
+            last_epoch = epoch;
             let new_path = {
                 let s = state.lock().unwrap();
                 let engine = s.audio_engine.lock().unwrap();
@@ -121,20 +146,48 @@ fn live_producer(
                             d.decoder_seek(engine_pos);
                             stream_pos = engine_pos;
                             decoder = Some(d);
+                            // A fresh decoder starts from a known engine-aligned
+                            // position, so the post-burst realign is a no-op.
+                            burst_aligned = false;
+                            // Reset audio-tracking atomics: the client will
+                            // hear this track (or the seeked position) after
+                            // ~PREBUFFER_CHUNKS × CHUNK_DURATION_SECS seconds.
+                            shared.audio_track_base_pos.store(engine_pos);
+                            let cur = shared.audio_chunk_counter.load(Ordering::Relaxed);
+                            shared.audio_track_start_chunk.store(cur, Ordering::Relaxed);
                         }
                     }
                 }
             }
         }
 
-        // 2. Check for seek (position divergence > 2s) — atomic reads, no lock needed.
-        if let Some(ref mut d) = decoder {
-            let dev_sr = shared.sample_rate.load(Ordering::Relaxed).max(1);
-            let engine_pos =
-                shared.position_samples.load(Ordering::Relaxed) as f64 / dev_sr as f64;
-            if (engine_pos - stream_pos).abs() > 2.0 {
-                d.decoder_seek(engine_pos);
+        // 2. Post-burst realign *without* seeking, then divergence-based seek.
+        //    During the prebuffer burst we skip this entirely (see comment on
+        //    `burst_aligned`). On the first chunk after the burst we reset
+        //    `stream_pos` to the live `engine_pos` without touching the decoder
+        //    — the decoder intentionally leads the engine by the prebuffer
+        //    duration, this only repairs the divergence baseline so that later
+        //    genuine seeks (delta > 2s) are still detected.
+        if chunk_idx > PREBUFFER_CHUNKS {
+            if !burst_aligned {
+                let dev_sr = shared.sample_rate.load(Ordering::Relaxed).max(1);
+                let engine_pos =
+                    shared.position_samples.load(Ordering::Relaxed) as f64 / dev_sr as f64;
                 stream_pos = engine_pos;
+                burst_aligned = true;
+            } else if let Some(ref mut d) = decoder {
+                let dev_sr = shared.sample_rate.load(Ordering::Relaxed).max(1);
+                let engine_pos =
+                    shared.position_samples.load(Ordering::Relaxed) as f64 / dev_sr as f64;
+                if (engine_pos - stream_pos).abs() > 2.0 {
+                    d.decoder_seek(engine_pos);
+                    stream_pos = engine_pos;
+                    // A user-initiated seek — rebase audio-tracking so the
+                    // client-side playhead catches up after the prebuffer drain.
+                    shared.audio_track_base_pos.store(engine_pos);
+                    let cur = shared.audio_chunk_counter.load(Ordering::Relaxed);
+                    shared.audio_track_start_chunk.store(cur, Ordering::Relaxed);
+                }
             }
         }
 
@@ -166,6 +219,7 @@ fn live_producer(
         if tx.blocking_send(Ok(Bytes::from(chunk.to_vec()))).is_err() {
             break;
         }
+        shared.audio_chunk_counter.fetch_add(1, Ordering::Relaxed);
 
         if playing && decoder.is_some() {
             stream_pos += CHUNK_DURATION_SECS;
@@ -208,21 +262,14 @@ struct TrackInfo {
 }
 
 #[derive(serde::Serialize)]
-struct LyricInfo {
-    index: i32,
-    current: String,
-    next: Vec<String>,
-}
-
-#[derive(serde::Serialize)]
 struct StateInfo {
     playing: bool,
     position: f64,
     duration: f64,
 }
 
-/// Entry point: SSE stream of track metadata, lyrics, and playback state.
-pub fn live_info(state: SharedAppState, next_count: usize) -> Result<Response, (StatusCode, String)> {
+/// Entry point: SSE stream of track metadata and playback state.
+pub fn live_info(state: SharedAppState) -> Result<Response, (StatusCode, String)> {
     let music_folder = {
         let s = state.lock().unwrap();
         let mf = s.music_folder.lock().unwrap().clone();
@@ -238,12 +285,11 @@ pub fn live_info(state: SharedAppState, next_count: usize) -> Result<Response, (
         engine.shared_state()
     };
 
-    let next = next_count.max(1);
     let (tx, rx) = mpsc::channel::<Result<Event, std::convert::Infallible>>(16);
 
     std::thread::Builder::new()
         .name("live-info".into())
-        .spawn(move || live_info_producer(state, shared, music_folder, tx, next))
+        .spawn(move || live_info_producer(state, shared, music_folder, tx))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
@@ -254,18 +300,18 @@ pub fn live_info(state: SharedAppState, next_count: usize) -> Result<Response, (
     ).into_response())
 }
 
-/// Producer thread: sends SSE events for track changes, lyric lines, and state.
+/// Producer thread: sends SSE events for track changes and state.
 fn live_info_producer(
     state: SharedAppState,
     shared: Arc<SharedState>,
     music_folder: String,
     tx: mpsc::Sender<Result<Event, std::convert::Infallible>>,
-    next_count: usize,
 ) {
     let mut current_path = String::new();
-    let mut lyrics: Vec<LrcLine> = Vec::new();
-    let mut last_lyric_idx: i32 = -1;
-    let mut last_playing: bool = false;
+    // u64::MAX forces the first iteration to fire the track-change branch
+    // so an already-playing track is advertised on (re)connect.
+    let mut last_epoch: u64 = u64::MAX;
+    let mut last_playing: bool = shared.playing.load(Ordering::Relaxed);
     let mut iteration: usize = 0;
 
     loop {
@@ -275,8 +321,14 @@ fn live_info_producer(
 
         let iter_start = Instant::now();
 
-        // 1. Check current_path for song changes (every 5 iterations = 1s).
-        if iteration.is_multiple_of(INFO_PATH_CHECK_INTERVAL) || (current_path.is_empty() && iteration == 0) {
+        // 1. Detect track changes via epoch (atomic read every iteration, no
+        //    lock unless the epoch actually changed). Detecting a change in
+        //    ~200ms instead of the previous 1s means the client gets the new
+        //    track's lyrics essentially at the same time as its state event,
+        //    which fixes the lyric/progress-bar drift on auto-next.
+        let epoch = shared.track_epoch.load(Ordering::Acquire);
+        if epoch != last_epoch {
+            last_epoch = epoch;
             let new_path = {
                 let s = state.lock().unwrap();
                 let engine = s.audio_engine.lock().unwrap();
@@ -285,18 +337,39 @@ fn live_info_producer(
 
             if new_path != current_path {
                 current_path = new_path.clone();
-                lyrics.clear();
-                last_lyric_idx = -1;
 
                 if !current_path.is_empty() {
                     let track_info = build_track_info(&current_path, &music_folder);
                     if let Some(info) = track_info {
-                        lyrics = info.lyrics.clone();
                         let json = serde_json::to_string(&info).unwrap_or_default();
                         let event = Event::default().event("track").data(json);
                         if tx.blocking_send(Ok(event)).is_err() {
                             break;
                         }
+
+                        // Immediately follow the track event with a state event
+                        // carrying the *current* playing/position/duration so the
+                        // client can resync lyrics + progress bar the moment the
+                        // new track arrives. Read these atomics *after* the
+                        // Acquire-load of epoch, so by the Release/Acquire
+                        // contract we see the exact state play() committed before
+                        // bumping the epoch.
+                        let dur = shared.duration_secs.load();
+                        let playing = shared.playing.load(Ordering::Relaxed);
+                        let pos = audio_position(&shared);
+                        let state_info = StateInfo {
+                            playing,
+                            position: pos,
+                            duration: dur,
+                        };
+                        let json = serde_json::to_string(&state_info).unwrap_or_default();
+                        let event = Event::default().event("state").data(json);
+                        if tx.blocking_send(Ok(event)).is_err() {
+                            break;
+                        }
+                        // Suppress the duplicate state event that step 2 would
+                        // otherwise emit for the very same playing transition.
+                        last_playing = playing;
                     }
                 }
             }
@@ -306,9 +379,8 @@ fn live_info_producer(
         let playing = shared.playing.load(Ordering::Relaxed);
         if playing != last_playing {
             last_playing = playing;
-            let dev_sr = shared.sample_rate.load(Ordering::Relaxed).max(1);
-            let pos = shared.position_samples.load(Ordering::Relaxed) as f64 / dev_sr as f64;
             let dur = shared.duration_secs.load();
+            let pos = audio_position(&shared);
             let state_info = StateInfo { playing, position: pos, duration: dur };
             let json = serde_json::to_string(&state_info).unwrap_or_default();
             let event = Event::default().event("state").data(json);
@@ -317,34 +389,10 @@ fn live_info_producer(
             }
         }
 
-        // 3. Check current lyric line (every iteration, only on change).
-        if !lyrics.is_empty() {
-            let dev_sr = shared.sample_rate.load(Ordering::Relaxed).max(1);
-            let pos = shared.position_samples.load(Ordering::Relaxed) as f64 / dev_sr as f64;
-            let idx = lrc_parser::get_current_line_idx(&lyrics, pos);
-            if idx != last_lyric_idx {
-                last_lyric_idx = idx;
-                let current = if idx >= 0 { lyrics[idx as usize].text.as_str() } else { "" };
-                let next: Vec<String> = (1..=next_count)
-                    .filter_map(|i| {
-                        let li = (idx + i as i32) as usize;
-                        if li < lyrics.len() { Some(lyrics[li].text.clone()) } else { None }
-                    })
-                    .collect();
-                let info = LyricInfo { index: idx, current: current.to_string(), next };
-                let json = serde_json::to_string(&info).unwrap_or_default();
-                let event = Event::default().event("lyric").data(json);
-                if tx.blocking_send(Ok(event)).is_err() {
-                    break;
-                }
-            }
-        }
-
-        // 4. Periodic state sync (every 5 iterations = 1s).
+        // 3. Periodic state sync (every 5 iterations = 1s).
         if iteration.is_multiple_of(INFO_STATE_SYNC_INTERVAL) && iteration > 0 {
-            let dev_sr = shared.sample_rate.load(Ordering::Relaxed).max(1);
-            let pos = shared.position_samples.load(Ordering::Relaxed) as f64 / dev_sr as f64;
             let dur = shared.duration_secs.load();
+            let pos = audio_position(&shared);
             let state_info = StateInfo { playing, position: pos, duration: dur };
             let json = serde_json::to_string(&state_info).unwrap_or_default();
             let event = Event::default().event("state").data(json);
@@ -353,7 +401,7 @@ fn live_info_producer(
             }
         }
 
-        // 5. Pacing: time-compensated sleep.
+        // 4. Pacing: time-compensated sleep.
         iteration += 1;
         let elapsed = iter_start.elapsed();
         let sleep_time = Duration::from_millis(INFO_POLL_INTERVAL_MS).saturating_sub(elapsed);

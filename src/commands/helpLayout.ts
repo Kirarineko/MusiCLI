@@ -45,6 +45,7 @@ export function printHelp(
   printRaw('    set maxlines <n>      ' + t('helpMaxlines'));
   printRaw('    sync theme save|load|list|delete|export|import  ' + t('helpSync'));
   printLine('  ' + t('helpGroupSystem'), 'dim');
+  printRaw('    listen                ' + t('helpListen'));
   printRaw('    lang <en|zh|ja>       ' + t('helpLang'));
   printRaw('    reset                 ' + t('helpReset'));
   printRaw('    clear                 ' + t('helpClear'));

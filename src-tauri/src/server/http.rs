@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -106,6 +107,7 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/sync/export", post(export_sync))
         .route("/sync/import", post(import_sync))
         .route("/folder", put(set_folder))
+        .nest_service("/listen", ServeDir::new("assets"))
         .with_state(state)
         .layer(CorsLayer::permissive())
 }
@@ -802,19 +804,10 @@ async fn stream(
 
 // ── Stream Info (SSE) ───────────────────────────────────────────────
 
-#[derive(Deserialize)]
-struct StreamInfoQuery {
-    /// Number of upcoming lyric lines to include in each `lyric` event.
-    #[serde(default)]
-    next: Option<usize>,
-}
-
 async fn stream_info(
     state: AxumState<SharedState>,
-    Query(q): Query<StreamInfoQuery>,
 ) -> Result<Response, (StatusCode, String)> {
-    let next = q.next.unwrap_or(crate::server::live::DEFAULT_NEXT_LYRIC_COUNT);
-    super::live::live_info(state.0.clone(), next)
+    super::live::live_info(state.0.clone())
 }
 
 // ── Sync ────────────────────────────────────────────────────────────
