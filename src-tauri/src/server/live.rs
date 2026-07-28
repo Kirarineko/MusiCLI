@@ -219,9 +219,12 @@ fn live_producer(
         if tx.blocking_send(Ok(Bytes::from(chunk.to_vec()))).is_err() {
             break;
         }
-        shared.audio_chunk_counter.fetch_add(1, Ordering::Relaxed);
-
+        // Only advance the audio-position counter while actually playing.
+        // Silence chunks sent during pause must NOT move the counter, so
+        // audio_position() freezes and the resume state event carries the
+        // correct playhead for client recalibration.
         if playing && decoder.is_some() {
+            shared.audio_chunk_counter.fetch_add(1, Ordering::Relaxed);
             stream_pos += CHUNK_DURATION_SECS;
         }
 

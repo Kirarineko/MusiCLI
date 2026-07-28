@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一起听</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #000000;
+  --text: #ffffff;
+  --text-dim: rgba(255,255,255,0.4);
+  --text-faint: rgba(255,255,255,0.15);
+  --line: rgba(255,255,255,0.08);
+  --accent: rgba(255,255,255,0.9);
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.container {
+  width: 100%;
+  max-width: 560px;
+  padding: 48px 40px;
+}
+
+/* 时间显示 - 超大等宽字体 */
+.time-display {
+  font-size: 72px;
+  font-weight: 200;
+  letter-spacing: -2px;
+  color: var(--text);
+  margin-bottom: 4px;
+  line-height: 1;
+  transition: opacity 0.3s;
+}
+
+.time-total {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  margin-bottom: 48px;
+}
+
+/* 进度线 - 极细 */
+.progress-track {
+  width: 100%;
+  height: 1px;
+  background: var(--line);
+  margin-bottom: 56px;
+  position: relative;
+}
+
+.progress-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.3s linear;
+}
+
+/* 曲目信息 */
+.track-title {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-meta {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  margin-bottom: 48px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 歌词 */
+.lyrics-area {
+  min-height: 80px;
+  margin-bottom: 56px;
+}
+
+.lyric-line {
+  font-size: 15px;
+  line-height: 2;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+}
+
+.lyric-active {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.lyric-inactive {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.lyric-placeholder {
+  color: var(--text-faint);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* EQ 均衡器条 */
+.eq-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+  margin-bottom: 32px;
+}
+
+.eq-bar {
+  width: 2px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 1px;
+  transition: height 0.15s ease;
+  height: 3px;
+}
+
+.eq-bars.active .eq-bar {
+  animation: eqPulse 0.8s ease-in-out infinite alternate;
+}
+
+.eq-bar:nth-child(1) { animation-delay: 0s; }
+.eq-bar:nth-child(2) { animation-delay: 0.1s; }
+.eq-bar:nth-child(3) { animation-delay: 0.2s; }
+.eq-bar:nth-child(4) { animation-delay: 0.05s; }
+.eq-bar:nth-child(5) { animation-delay: 0.15s; }
+.eq-bar:nth-child(6) { animation-delay: 0.25s; }
+.eq-bar:nth-child(7) { animation-delay: 0.08s; }
+.eq-bar:nth-child(8) { animation-delay: 0.18s; }
+
+@keyframes eqPulse {
+  0% { height: 3px; opacity: 0.3; }
+  100% { height: 20px; opacity: 0.7; }
+}
+
+/* 状态行 */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.status-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: background 0.3s;
+}
+
+.status-dot.on {
+  background: #fff;
+  box-shadow: 0 0 6px rgba(255,255,255,0.4);
+}
+
+/* 自动播放 */
+.autoplay-screen {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  cursor: pointer;
+}
+
+.autoplay-screen.hidden { display: none; }
+
+.autoplay-label {
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  animation: blink 2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 600px) {
+  .container { padding: 32px 24px; }
+  .time-display { font-size: 48px; }
+}
+</style>
+</head>
+<body>
+
+<div class="autoplay-screen" id="autoplay-screen">
+  <div class="autoplay-label">tap to begin</div>
+</div>
+
+<div class="container">
+  <div class="time-display" id="time-pos">0:00</div>
+  <div class="time-total">/ <span id="time-dur">0:00</span></div>
+
+  <div class="progress-track">
+    <div class="progress-bar" id="progress"></div>
+  </div>
+
+  <div class="track-title" id="title">—</div>
+  <div class="track-meta" id="meta">&nbsp;</div>
+
+  <div class="lyrics-area" id="lyrics">
+    <div class="lyric-placeholder">no lyrics</div>
+  </div>
+
+  <div class="eq-bars" id="eq">
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+  </div>
+
+  <div class="status-row">
+    <span class="status-dot" id="dot"></span>
+    <span id="status-text">connecting</span>
+  </div>
+</div>
+
+<!--MUSICLI_JS-->
+<script>
+(function() {
+  'use strict';
+  var $ = function(s) { return document.querySelector(s); };
+
+  var screen = $('#autoplay-screen');
+  var dismissed = false;
+  var player = null;
+
+  function dismiss() {
+    if (dismissed) return;
+    dismissed = true;
+    screen.classList.add('hidden');
+    if (player) player.resume();
+  }
+  screen.addEventListener('click', dismiss);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+    dismiss();
+  });
+
+  if (typeof MusiCLIPlayer === 'undefined') {
+    screen.querySelector('.autoplay-label').textContent = 'connection failed';
+    return;
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderLyrics() {
+    var el = $('#lyrics');
+    var lyrics = player.lyrics;
+    var idx = player.currentLyricIndex;
+    if (!lyrics.length) {
+      el.innerHTML = '<div class="lyric-placeholder">no lyrics</div>';
+      return;
+    }
+    var html = '';
+    if (idx >= 0 && idx < lyrics.length) {
+      html += '<div class="lyric-line lyric-active">' + esc(lyrics[idx].text) + '</div>';
+    }
+    for (var i = 1; i <= 2; i++) {
+      var ni = idx + i;
+      if (ni < lyrics.length) {
+        html += '<div class="lyric-line lyric-inactive">' + esc(lyrics[ni].text) + '</div>';
+      }
+    }
+    if (!html) html = '<div class="lyric-placeholder">no lyrics</div>';
+    el.innerHTML = html;
+  }
+
+  function updateStatus() {
+    var dot = $('#dot');
+    var text = $('#status-text');
+    var eq = $('#eq');
+    dot.className = 'status-dot';
+    eq.classList.remove('active');
+
+    if (!player.connected) {
+      text.textContent = 'connecting';
+    } else if (player.playing) {
+      dot.className = 'status-dot on';
+      text.textContent = 'playing';
+      eq.classList.add('active');
+    } else {
+      dot.className = 'status-dot on';
+      text.textContent = 'paused';
+    }
+  }
+
+  player = new MusiCLIPlayer();
+
+  player.on('track', function(t) {
+    $('#title').textContent = t.title || 'unknown';
+    var meta = t.artist || '';
+    if (t.album) meta += ' — ' + t.album;
+    $('#meta').textContent = meta || '\u00a0';
+    $('#time-dur').textContent = MusiCLIPlayer.formatTime(t.duration);
+    renderLyrics();
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: t.title || '', artist: t.artist || '', album: t.album || ''
+      });
+    }
+    updateStatus();
+  });
+
+  player.on('state', function(s) {
+    $('#time-dur').textContent = MusiCLIPlayer.formatTime(s.duration);
+    updateStatus();
+  });
+
+  player.on('tick', function(pos) {
+    $('#time-pos').textContent = MusiCLIPlayer.formatTime(pos);
+    var pct = player.duration > 0 ? Math.min(100, pos / player.duration * 100) : 0;
+    $('#progress').style.width = pct + '%';
+  });
+
+  player.on('lyric', function() { renderLyrics(); });
+  player.on('connect', function() { updateStatus(); });
+  player.on('disconnect', function() { updateStatus(); });
+  player.on('play', function() {
+    dismissed = true;
+    screen.classList.add('hidden');
+  });
+
+  updateStatus();
+  player.start();
+})();
+</script>
+</body>
+</html>

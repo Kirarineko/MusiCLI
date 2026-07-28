@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>银河与皓月 · 一起听</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root {
+  --txt: #e9edfb;
+  --mut: #8b94b0;
+  --moon: #f4efdd;
+  --accent: #a9c3ff;
+  --panel: rgba(12, 16, 34, .52);
+  --line: rgba(150, 172, 224, .16);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: #03040a; color: var(--txt); overflow: hidden;
+  font-family: "Inter", -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+#scene { position: fixed; inset: 0; display: block; }
+.vignette {
+  position: fixed; inset: 0; pointer-events: none;
+  background: radial-gradient(130% 100% at 50% 42%, transparent 55%, rgba(2, 3, 9, .6) 100%);
+}
+
+/* ── 角落微尘（无面板，仅文字）───────────────── */
+.corner {
+  position: fixed; z-index: 5; font-size: 11px; letter-spacing: .34em;
+  color: var(--mut); text-transform: uppercase; pointer-events: none;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .8);
+}
+.corner.brand { top: 26px; left: 30px; }
+.corner.stat { top: 26px; right: 30px; display: flex; align-items: center; gap: 9px; letter-spacing: .2em; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #3c4358; transition: background .3s; }
+.dot.on { background: #9fd8b4; }
+.dot.play { background: var(--accent); animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* ── 悬浮文字层：漂浮于星星之间 ───────────────── */
+.layer { position: fixed; z-index: 5; pointer-events: none; will-change: transform; }
+#layerTitle { top: 15vh; left: 8vw; max-width: 46vw; }
+#layerLyrics { left: 0; right: 0; top: 42vh; display: flex; justify-content: center; }
+
+.sway { animation: sway 7s ease-in-out infinite; }
+.sway.s2 { animation-duration: 9.5s; animation-delay: -3.2s; }
+@keyframes sway { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+
+.title {
+  font-size: clamp(26px, 3.6vw, 40px); font-weight: 650; letter-spacing: .03em;
+  color: #f4f7ff; line-height: 1.2;
+  text-shadow: 0 0 30px rgba(170, 195, 255, .45), 0 2px 18px rgba(0, 0, 0, .6);
+}
+.meta {
+  margin-top: 8px; font-size: 13px; color: var(--mut); letter-spacing: .22em;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, .7);
+}
+
+.lyrics { text-align: center; max-width: 84vw; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.l-cur {
+  font-size: clamp(21px, 3vw, 30px); font-weight: 550; color: #f5f8ff; letter-spacing: .1em;
+  text-shadow: 0 0 34px rgba(185, 205, 255, .65), 0 0 10px rgba(255, 255, 255, .3), 0 2px 16px rgba(0, 0, 0, .65);
+}
+.l-next {
+  font-size: 14px; color: #aab4d2; opacity: .78; letter-spacing: .08em;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, .8);
+}
+.l-next.far { opacity: .4; }
+.l-empty { font-size: 13px; color: var(--mut); opacity: .6; font-style: italic; letter-spacing: .2em; }
+.fade-in { animation: fade-in .8s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); filter: blur(5px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+/* ── 悬浮进度丝 ─────────────────────────────── */
+.float-progress {
+  position: fixed; left: 7vw; right: 7vw; bottom: 5.5vh; z-index: 5;
+  display: flex; align-items: center; gap: 16px; pointer-events: none;
+}
+.time {
+  font-size: 11px; color: var(--mut); min-width: 38px; text-align: center;
+  font-variant-numeric: tabular-nums; letter-spacing: .06em;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .8);
+}
+.bar { flex: 1; height: 1px; background: rgba(255, 255, 255, .13); }
+.fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, rgba(230, 238, 255, .9), rgba(157, 185, 255, .9));
+  box-shadow: 0 0 10px rgba(157, 185, 255, .7);
+}
+
+/* ── 启幕 ───────────────────────────────────── */
+.gate {
+  position: fixed; inset: 0; z-index: 60; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(90% 70% at 50% 38%, #0d1332 0%, #05071a 55%, #02030a 100%);
+}
+.gate.hidden { display: none; }
+.gate-inner { text-align: center; }
+.gate-moon {
+  width: 116px; height: 116px; margin: 0 auto 30px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, #fffbe9 0%, #efe8cd 45%, #cfc6a4 78%, #b3ab8c 100%);
+  box-shadow:
+    0 0 60px 18px rgba(244, 238, 214, .28),
+    0 0 160px 60px rgba(190, 180, 140, .14),
+    inset -12px -10px 30px rgba(120, 105, 70, .35);
+  animation: moon-breathe 3.6s ease-in-out infinite;
+}
+@keyframes moon-breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 60px 18px rgba(244,238,214,.28), 0 0 160px 60px rgba(190,180,140,.14), inset -12px -10px 30px rgba(120,105,70,.35); }
+  50% { transform: scale(1.045); box-shadow: 0 0 80px 26px rgba(244,238,214,.36), 0 0 200px 80px rgba(190,180,140,.18), inset -12px -10px 30px rgba(120,105,70,.35); }
+}
+.gate-text { font-size: 17px; letter-spacing: .42em; text-indent: .42em; color: #eef1ff; text-shadow: 0 0 20px rgba(170, 195, 255, .5); }
+.gate-hint { margin-top: 12px; font-size: 11.5px; letter-spacing: .2em; color: var(--mut); }
+.gyro-hint { display: none; margin-top: 6px; opacity: .7; }
+@media (hover: none) and (pointer: coarse) { .gyro-hint { display: block; } }
+
+@media (max-width: 560px) {
+  .corner { font-size: 10px; letter-spacing: .22em; }
+  .corner.brand { left: 20px; top: 18px; }
+  .corner.stat { right: 20px; top: 18px; }
+  #layerTitle { top: 11vh; left: 7vw; max-width: 86vw; }
+  #layerLyrics { top: 38vh; }
+  .float-progress { left: 6vw; right: 6vw; bottom: 4.5vh; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+
+<span class="corner brand">MusiCLI · 一起听</span>
+<span class="corner stat"><span class="dot" id="statusDot"></span><span id="statusText">正在连入星海…</span></span>
+
+<div class="layer" id="layerTitle" data-depth="10">
+  <div class="sway s1">
+    <div class="title" id="title">静候佳音</div>
+    <div class="meta" id="meta">尚未开演</div>
+  </div>
+</div>
+
+<div class="layer" id="layerLyrics" data-depth="20">
+  <div class="sway s2">
+    <div class="lyrics" id="lyrics"><div class="l-empty">等待第一句歌词…</div></div>
+  </div>
+</div>
+
+<div class="float-progress">
+  <span class="time" id="timePos">0:00</span>
+  <div class="bar"><div class="fill" id="fill"></div></div>
+  <span class="time" id="timeDur">0:00</span>
+</div>
+
+<div class="gate" id="gate">
+  <div class="gate-inner">
+    <div class="gate-moon"></div>
+    <div class="gate-text">点击进入星海</div>
+    <div class="gate-hint">浏览器需要用户交互才能播放音频</div>
+    <div class="gate-hint gyro-hint">移动端：倾斜手机即可环顾星海</div>
+  </div>
+</div>
+
+<!--MUSICLI_JS-->
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+
+  // ── 先绑定启幕层 ─────────────────────────────
+  var gate = $('#gate');
+  var gateOff = false;
+  var player = null;
+
+  function dismissGate() {
+    if (gateOff) return;
+    gateOff = true;
+    gate.classList.add('hidden');
+    if (player) player.resume();
+    requestGyro();
+  }
+  gate.addEventListener('click', dismissGate);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+    dismissGate();
+  });
+
+  if (typeof MusiCLIPlayer === 'undefined') {
+    gate.querySelector('.gate-text').textContent = 'musicli.js 加载失败';
+    gate.querySelector('.gate-hint').textContent = '请检查 HTTP 服务器是否正常运行';
+    return;
+  }
+
+  /* ── 指针源：桌面鼠标 / 移动端陀螺仪 ───────── */
+  var pointer = { x: 0, y: 0, active: false };
+  var gyroEnabled = false;
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+  // 仅响应真实鼠标；忽略触屏合成的 mouse 事件（避免点击触发视差）
+  document.addEventListener('pointermove', function (e) {
+    if (e.pointerType === 'touch') return;
+    pointer.x = e.clientX / window.innerWidth - .5;
+    pointer.y = e.clientY / window.innerHeight - .5;
+  });
+
+  function enableGyro() {
+    gyroEnabled = true;
+    var lastGamma = null, lastBeta = null, lastT = 0;
+
+    window.addEventListener('deviceorientation', function (e) {
+      if (e.gamma == null || e.beta == null) return;
+      var now = performance.now();
+      if (lastT === 0) { lastGamma = e.gamma; lastBeta = e.beta; lastT = now; return; }
+      var dt = (now - lastT) / 1000;
+      lastT = now;
+      if (dt <= 0 || dt > 1) { lastGamma = e.gamma; lastBeta = e.beta; return; }
+
+      // 角速度（deg/s）：倾转越快，视差滚动越快
+      var velX = (e.gamma - lastGamma) / dt;
+      var velY = (e.beta - lastBeta) / dt;
+      lastGamma = e.gamma;
+      lastBeta = e.beta;
+
+      var speed = Math.sqrt(velX * velX + velY * velY);
+      if (speed > 6) {
+        // 有加速度 → 积分滚动
+        pointer.x = clamp(pointer.x + velX * dt * .0035, -.5, .5);
+        pointer.y = clamp(pointer.y + velY * dt * .0035, -.5, .5);
+        pointer.active = true;
+      } else {
+        pointer.active = false;
+      }
+    });
+  }
+
+  // 无倾转时平滑回中
+  (function decay() {
+    requestAnimationFrame(decay);
+    if (gyroEnabled && !pointer.active) {
+      pointer.x += (0 - pointer.x) * .04;
+      pointer.y += (0 - pointer.y) * .04;
+      if (Math.abs(pointer.x) < .001) pointer.x = 0;
+      if (Math.abs(pointer.y) < .001) pointer.y = 0;
+    }
+  })();
+
+  // iOS 13+ 需在用户手势中请求授权（启幕点击即手势）
+  function requestGyro() {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then(function (state) {
+        if (state === 'granted') enableGyro();
+      }).catch(function () {
+        // 非安全上下文（HTTP）会被拒绝，仍尝试直接监听（兼容旧版 iOS）
+        enableGyro();
+      });
+    } else if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      // Android 触屏：无需授权，直接启用
+      enableGyro();
+    }
+  }
+
+  /* ══════════════════ 场景层 ══════════════════ */
+
+  var canvas = document.getElementById('scene');
+  var playingNow = false;
+  var burstRequested = 0; // 切歌时请求流星雨
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  function radialCanvas(size, stops) {
+    var c = document.createElement('canvas');
+    c.width = c.height = size;
+    var g = c.getContext('2d');
+    var grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    for (var i = 0; i < stops.length; i++) grad.addColorStop(stops[i][0], stops[i][1]);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, size, size);
+    return c;
+  }
+
+  function moonCanvas() {
+    var s = 256, c = document.createElement('canvas');
+    c.width = c.height = s;
+    var g = c.getContext('2d');
+    var base = g.createRadialGradient(s * .42, s * .38, s * .1, s / 2, s / 2, s * .52);
+    base.addColorStop(0, '#fffdf0');
+    base.addColorStop(.55, '#f0e9d0');
+    base.addColorStop(1, '#d8cfb0');
+    g.fillStyle = base;
+    g.beginPath(); g.arc(s / 2, s / 2, s / 2, 0, 7); g.fill();
+    // 陨石坑
+    for (var i = 0; i < 18; i++) {
+      var r = rand(5, 22), x = rand(s * .18, s * .82), y = rand(s * .18, s * .82);
+      var d = Math.hypot(x - s / 2, y - s / 2);
+      if (d + r > s * .48) continue;
+      var cg = g.createRadialGradient(x, y, 0, x, y, r);
+      cg.addColorStop(0, 'rgba(120,108,84,.20)');
+      cg.addColorStop(.7, 'rgba(120,108,84,.10)');
+      cg.addColorStop(1, 'rgba(120,108,84,0)');
+      g.fillStyle = cg;
+      g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    }
+    // 边缘暗化
+    var limb = g.createRadialGradient(s / 2, s / 2, s * .3, s / 2, s / 2, s * .5);
+    limb.addColorStop(0, 'rgba(90,80,60,0)');
+    limb.addColorStop(1, 'rgba(90,80,60,.28)');
+    g.fillStyle = limb;
+    g.beginPath(); g.arc(s / 2, s / 2, s / 2, 0, 7); g.fill();
+    return c;
+  }
+
+  /* ── Three.js 银河 ─────────────────────────── */
+  function initThree() {
+    var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(60, 1, .1, 800);
+    camera.position.set(0, 4, 64);
+
+    var STAR_VERT = [
+      'attribute float aScale;',
+      'attribute float aPhase;',
+      'attribute vec3 aColor;',
+      'uniform float uTime;',
+      'uniform float uPulse;',
+      'varying vec3 vColor;',
+      'varying float vTw;',
+      'void main(){',
+      '  vColor = aColor;',
+      '  float tw = 0.7 + 0.3 * sin(uTime * (0.5 + aPhase) + aPhase * 40.0);',
+      '  vTw = tw;',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  gl_PointSize = aScale * uPulse * tw * (340.0 / -mv.z);',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n');
+    var STAR_FRAG = [
+      'varying vec3 vColor;',
+      'varying float vTw;',
+      'uniform float uOpacity;',
+      'void main(){',
+      '  vec2 uv = gl_PointCoord - 0.5;',
+      '  float d = length(uv);',
+      '  float a = smoothstep(0.5, 0.02, d);',
+      '  a *= a;',
+      '  gl_FragColor = vec4(vColor, a * uOpacity * vTw);',
+      '}'
+    ].join('\n');
+
+    function starMaterial(opacity) {
+      return new THREE.ShaderMaterial({
+        uniforms: { uTime: { value: 0 }, uPulse: { value: 1 }, uOpacity: { value: opacity } },
+        vertexShader: STAR_VERT, fragmentShader: STAR_FRAG,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+      });
+    }
+
+    function buildStars(count, placer, palette) {
+      var pos = new Float32Array(count * 3);
+      var col = new Float32Array(count * 3);
+      var scl = new Float32Array(count);
+      var pha = new Float32Array(count);
+      var c = new THREE.Color();
+      for (var i = 0; i < count; i++) {
+        var p = placer();
+        pos[i * 3] = p[0]; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2];
+        c.set(palette[Math.floor(Math.random() * palette.length)]);
+        c.multiplyScalar(rand(.55, 1));
+        col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+        scl[i] = rand(.5, 1.9);
+        pha[i] = Math.random();
+      }
+      var geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
+      geo.setAttribute('aScale', new THREE.BufferAttribute(scl, 1));
+      geo.setAttribute('aPhase', new THREE.BufferAttribute(pha, 1));
+      return geo;
+    }
+
+    var fieldMat = starMaterial(.95);
+    var fieldGeo = buildStars(2600, function () {
+      var r = rand(90, 260), th = rand(0, Math.PI * 2), ph = Math.acos(rand(-1, 1));
+      return [r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph) * .7, r * Math.sin(ph) * Math.sin(th) - 60];
+    }, ['#ffffff', '#dfe9ff', '#bcd0ff', '#ffe9c9']);
+    var field = new THREE.Points(fieldGeo, fieldMat);
+    scene.add(field);
+
+    // 银河带
+    var bandMat = starMaterial(.5);
+    var bandGeo = buildStars(4200, function () {
+      var t = rand(-1, 1), spread = (1 - t * t);
+      return [
+        t * 240 + rand(-1, 1) * 26 * spread,
+        rand(-1, 1) * rand(4, 16) * spread,
+        rand(-1, 1) * 30 * spread - 110
+      ];
+    }, ['#8fa8e8', '#a9bdeeff', '#7f92d8', '#c3d2ff']);
+    var band = new THREE.Points(bandGeo, bandMat);
+    var bandGroup = new THREE.Group();
+    bandGroup.add(band);
+    bandGroup.rotation.z = .62;
+    bandGroup.rotation.x = .22;
+    scene.add(bandGroup);
+
+    // 皓月
+    var moonPos = new THREE.Vector3(30, 19, -78);
+    var moon = new THREE.Mesh(
+      new THREE.SphereGeometry(7.6, 48, 48),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(moonCanvas()) })
+    );
+    moon.position.copy(moonPos);
+    scene.add(moon);
+
+    function sprite(canvasEl, scale, opacity) {
+      var m = new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(canvasEl),
+        transparent: true, opacity: opacity, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      var s = new THREE.Sprite(m);
+      s.scale.set(scale, scale, 1);
+      return s;
+    }
+    var glowC = radialCanvas(256, [[0, 'rgba(255,250,225,.9)'], [.25, 'rgba(250,240,205,.42)'], [.6, 'rgba(230,215,170,.12)'], [1, 'rgba(230,215,170,0)']]);
+    var glow = sprite(glowC, 46, .9); glow.position.copy(moonPos); scene.add(glow);
+    var halo = sprite(glowC, 110, .28); halo.position.copy(moonPos); scene.add(halo);
+
+    // 星云
+    var nebulas = [];
+    var nebDefs = [
+      ['rgba(120,110,220,', -70, 26, -150, 150, .16],
+      ['rgba(80,150,200,', 70, -14, -160, 130, .13],
+      ['rgba(190,110,160,', -20, -34, -140, 100, .10]
+    ];
+    for (var n = 0; n < nebDefs.length; n++) {
+      var nd = nebDefs[n];
+      var nc = radialCanvas(256, [[0, nd[0] + '.5)'], [.5, nd[0] + '.16)'], [1, nd[0] + '0)']]);
+      var ns = sprite(nc, nd[4], nd[5]);
+      ns.position.set(nd[1], nd[2], nd[3]);
+      ns.userData.baseX = nd[1];
+      ns.userData.idx = n;
+      scene.add(ns);
+      nebulas.push(ns);
+    }
+
+    // 流星
+    var shots = [];
+    function spawnShot() {
+      var start = new THREE.Vector3(rand(-110, 110), rand(6, 60), rand(-130, -70));
+      var dir = new THREE.Vector3(rand(.5, 1) * (Math.random() < .5 ? -1 : 1), rand(-.55, -.25), 0).normalize();
+      var geo = new THREE.BufferGeometry().setFromPoints([start.clone(), start.clone()]);
+      var mat = new THREE.LineBasicMaterial({
+        color: 0xdfe9ff, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      });
+      var line = new THREE.Line(geo, mat);
+      scene.add(line);
+      shots.push({ line: line, start: start, dir: dir, t: 0, speed: rand(46, 92), len: rand(9, 17), max: rand(90, 140) });
+    }
+    var nextShot = 1.2;
+
+    function resize() {
+      var w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    var clock = new THREE.Clock();
+    var pulse = 1;
+    (function loop() {
+      requestAnimationFrame(loop);
+      var dt = Math.min(clock.getDelta(), .05);
+      var t = clock.elapsedTime;
+
+      fieldMat.uniforms.uTime.value = t;
+      bandMat.uniforms.uTime.value = t * 1.15;
+      var target = playingNow ? 1 + Math.sin(t * 2.1) * .07 : 1;
+      pulse += (target - pulse) * .04;
+      fieldMat.uniforms.uPulse.value = pulse;
+      bandMat.uniforms.uPulse.value = pulse;
+
+      var g = 1 + (playingNow ? Math.sin(t * 2.1) * .05 : 0);
+      glow.scale.set(46 * g, 46 * g, 1);
+      halo.scale.set(110 * (1 + (g - 1) * .6), 110 * (1 + (g - 1) * .6), 1);
+
+      field.rotation.y += dt * .004;
+      bandGroup.rotation.y -= dt * .0022;
+
+      for (var i = 0; i < nebulas.length; i++) {
+        var nb = nebulas[i];
+        nb.position.x = nb.userData.baseX + Math.sin(t * .05 + nb.userData.idx * 2.1) * 4;
+      }
+
+      if (burstRequested > 0) { burstRequested--; spawnShot(); }
+      nextShot -= dt;
+      if (nextShot <= 0) { spawnShot(); nextShot = rand(3.5, 8); }
+      for (var j = shots.length - 1; j >= 0; j--) {
+        var s = shots[j];
+        s.t += dt * s.speed;
+        var head = s.start.clone().addScaledVector(s.dir, s.t);
+        var tailLen = Math.min(s.len, s.t);
+        var tail = head.clone().addScaledVector(s.dir, -tailLen);
+        var arr = s.line.geometry.attributes.position.array;
+        arr[0] = head.x; arr[1] = head.y; arr[2] = head.z;
+        arr[3] = tail.x; arr[4] = tail.y; arr[5] = tail.z;
+        s.line.geometry.attributes.position.needsUpdate = true;
+        s.line.material.opacity = Math.max(0, Math.sin(Math.min(1, s.t / s.max) * Math.PI)) * .9;
+        if (s.t > s.max) {
+          scene.remove(s.line);
+          s.line.geometry.dispose();
+          s.line.material.dispose();
+          shots.splice(j, 1);
+        }
+      }
+
+      camera.position.x += (pointer.x * 9 - camera.position.x) * .03;
+      camera.position.y += (4 - pointer.y * 5 - camera.position.y) * .03;
+      camera.lookAt(6, 6, -70);
+      renderer.render(scene, camera);
+    })();
+  }
+
+  /* ── Canvas 2D 兜底（无 Three.js / 离线）────── */
+  function init2D() {
+    var ctx = canvas.getContext('2d');
+    var w = 0, h = 0, stars = [], shots = [];
+    var sx = 0, sy = 0; // 平滑后的视差偏移
+
+    function resize() {
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+      stars = [];
+      for (var i = 0; i < 420; i++) {
+        stars.push({
+          x: Math.random() * w, y: Math.random() * h,
+          r: rand(.4, 1.6), ph: rand(0, 6.28), sp: rand(.4, 1.4),
+          c: ['#ffffff', '#dfe9ff', '#ffe9c9'][Math.floor(Math.random() * 3)]
+        });
+      }
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function loop(ts) {
+      requestAnimationFrame(loop);
+      var t = ts / 1000;
+      sx += (pointer.x - sx) * .06;
+      sy += (pointer.y - sy) * .06;
+      var grd = ctx.createLinearGradient(0, 0, 0, h);
+      grd.addColorStop(0, '#070b20');
+      grd.addColorStop(.55, '#04060f');
+      grd.addColorStop(1, '#020308');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, w, h);
+
+      // 银河带
+      ctx.save();
+      ctx.translate(w * .5 - sx * 6, h * .42 - sy * 4);
+      ctx.rotate(-.5);
+      var band = ctx.createLinearGradient(0, -h * .13, 0, h * .13);
+      band.addColorStop(0, 'rgba(140,160,220,0)');
+      band.addColorStop(.5, 'rgba(150,170,230,.10)');
+      band.addColorStop(1, 'rgba(140,160,220,0)');
+      ctx.fillStyle = band;
+      ctx.fillRect(-w, -h * .13, w * 2, h * .26);
+      ctx.restore();
+
+      // 星（远景视差层）
+      ctx.save();
+      ctx.translate(-sx * 10, -sy * 7);
+      for (var i = 0; i < stars.length; i++) {
+        var s = stars[i];
+        var a = .35 + .65 * Math.abs(Math.sin(t * s.sp + s.ph));
+        ctx.globalAlpha = a * (playingNow ? .85 + .15 * Math.sin(t * 2.1) : 1);
+        ctx.fillStyle = s.c;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, 7);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+
+      // 皓月（近景视差层，位移更大）
+      var mx = w * .72 - sx * 22, my = h * .24 - sy * 16, mr = Math.min(w, h) * .085;
+      var pulse = playingNow ? 1 + Math.sin(t * 2.1) * .04 : 1;
+      var glow = ctx.createRadialGradient(mx, my, mr * .4, mx, my, mr * 4.2 * pulse);
+      glow.addColorStop(0, 'rgba(250,244,215,.34)');
+      glow.addColorStop(.4, 'rgba(240,230,195,.1)');
+      glow.addColorStop(1, 'rgba(240,230,195,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(mx - mr * 5, my - mr * 5, mr * 10, mr * 10);
+      var mg = ctx.createRadialGradient(mx - mr * .3, my - mr * .3, mr * .1, mx, my, mr);
+      mg.addColorStop(0, '#fffbe9');
+      mg.addColorStop(.6, '#efe8cd');
+      mg.addColorStop(1, '#c9c09e');
+      ctx.fillStyle = mg;
+      ctx.beginPath();
+      ctx.arc(mx, my, mr, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(130,118,90,.16)';
+      ctx.beginPath(); ctx.arc(mx - mr * .3, my + mr * .1, mr * .16, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx + mr * .25, my - mr * .28, mr * .11, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx + mr * .1, my + mr * .4, mr * .08, 0, 7); ctx.fill();
+
+      // 流星
+      if (burstRequested > 0) {
+        burstRequested--;
+        shots.push({ x: rand(0, w), y: rand(0, h * .4), vx: rand(-9, 9) || 6, vy: rand(3, 6), life: 1 });
+      }
+      if (Math.random() < .004) shots.push({ x: rand(0, w), y: rand(0, h * .4), vx: rand(-9, 9) || 6, vy: rand(3, 6), life: 1 });
+      for (var j = shots.length - 1; j >= 0; j--) {
+        var sh = shots[j];
+        sh.x += sh.vx; sh.y += sh.vy; sh.life -= .016;
+        if (sh.life <= 0) { shots.splice(j, 1); continue; }
+        var grad = ctx.createLinearGradient(sh.x, sh.y, sh.x - sh.vx * 8, sh.y - sh.vy * 8);
+        grad.addColorStop(0, 'rgba(230,238,255,' + (sh.life * .9) + ')');
+        grad.addColorStop(1, 'rgba(230,238,255,0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(sh.x, sh.y);
+        ctx.lineTo(sh.x - sh.vx * 8, sh.y - sh.vy * 8);
+        ctx.stroke();
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+
+  if (window.THREE) {
+    try { initThree(); } catch (e) { init2D(); }
+  } else {
+    init2D();
+  }
+
+  /* ── 文字视差：随指针（鼠标 / 陀螺仪）漂移 ───── */
+  (function textParallax() {
+    var layers = [document.getElementById('layerTitle'), document.getElementById('layerLyrics')];
+    var cx = 0, cy = 0;
+    (function drift() {
+      requestAnimationFrame(drift);
+      cx += (pointer.x - cx) * .045;
+      cy += (pointer.y - cy) * .045;
+      for (var i = 0; i < layers.length; i++) {
+        if (!layers[i]) continue;
+        var d = parseFloat(layers[i].getAttribute('data-depth') || '12');
+        layers[i].style.transform = 'translate3d(' + (-cx * d).toFixed(2) + 'px,' + (-cy * d).toFixed(2) + 'px,0)';
+      }
+    })();
+  })();
+
+  /* ══════════════════ 播放器层 ════════════════ */
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderLyrics() {
+    var el = $('#lyrics');
+    var lyrics = player.lyrics;
+    var idx = player.currentLyricIndex;
+    if (!lyrics.length) {
+      el.innerHTML = '<div class="l-empty">此曲无词</div>';
+      return;
+    }
+    var html = '';
+    if (idx >= 0 && idx < lyrics.length) {
+      html += '<div class="l-cur fade-in">' + escapeHtml(lyrics[idx].text) + '</div>';
+      if (idx + 1 < lyrics.length) html += '<div class="l-next">' + escapeHtml(lyrics[idx + 1].text) + '</div>';
+      if (idx + 2 < lyrics.length) html += '<div class="l-next far">' + escapeHtml(lyrics[idx + 2].text) + '</div>';
+    } else {
+      for (var i = 0; i < Math.min(2, lyrics.length); i++) {
+        html += '<div class="l-next' + (i === 1 ? ' far' : '') + '">' + escapeHtml(lyrics[i].text) + '</div>';
+      }
+    }
+    el.innerHTML = html;
+  }
+
+  function updateStatus() {
+    var dot = $('#statusDot');
+    var text = $('#statusText');
+    dot.className = 'dot';
+    if (!player.connected) {
+      text.textContent = '正在连入星海…';
+    } else if (player.playing) {
+      dot.className = 'dot on play';
+      text.textContent = '共游银河';
+    } else {
+      dot.className = 'dot on';
+      text.textContent = '星轨暂停';
+    }
+  }
+
+  player = new MusiCLIPlayer();
+
+  player.on('track', function (track) {
+    var title = track.title || '未知曲目';
+    var artist = track.artist || '';
+    var album = track.album || '';
+    var meta = artist;
+    if (album) meta += (meta ? ' · ' : '') + album;
+
+    var t = $('#title'), m = $('#meta');
+    t.classList.remove('fade-in'); m.classList.remove('fade-in');
+    void t.offsetWidth;
+    t.textContent = title;
+    m.textContent = meta || '佚名';
+    t.classList.add('fade-in'); m.classList.add('fade-in');
+
+    $('#timeDur').textContent = MusiCLIPlayer.formatTime(track.duration);
+    renderLyrics();
+    burstRequested = 3; // 切歌流星雨
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: title, artist: artist, album: album });
+    }
+    updateStatus();
+  });
+
+  player.on('state', function (s) {
+    playingNow = !!s.playing;
+    $('#timeDur').textContent = MusiCLIPlayer.formatTime(s.duration);
+    updateStatus();
+  });
+
+  player.on('tick', function (pos) {
+    $('#timePos').textContent = MusiCLIPlayer.formatTime(pos);
+    var pct = player.duration > 0 ? Math.min(100, pos / player.duration * 100) : 0;
+    $('#fill').style.width = pct + '%';
+  });
+
+  player.on('lyric', function () { renderLyrics(); });
+  player.on('connect', updateStatus);
+  player.on('disconnect', function () {
+    $('#statusDot').className = 'dot';
+    $('#statusText').textContent = '信号失联 · 重连中…';
+  });
+  player.on('play', function () {
+    gateOff = true;
+    gate.classList.add('hidden');
+  });
+
+  updateStatus();
+  player.start();
+})();
+</script>
+</body>
+</html>

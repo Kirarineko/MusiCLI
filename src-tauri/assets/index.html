@@ -3,318 +3,277 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MusiCLI 一起听</title>
+<title>musicli@listen — 一起听</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0a0a1a;
-  --card: rgba(255, 255, 255, 0.03);
-  --border: rgba(255, 255, 255, 0.06);
-  --text: #e2e8f0;
-  --text2: #94a3b8;
-  --accent: #7c3aed;
-  --green: #22c55e;
-  --bar-bg: rgba(255, 255, 255, 0.08);
-  --bar-fill: #7c3aed;
+  --bg: #060907;
+  --term: #0a0f0c;
+  --border: #1c2a21;
+  --text: #cfe3d6;
+  --mut: #5f7a69;
+  --dim: #3d5247;
+  --accent: #46d98a;
+  --accent-hi: #7dedb0;
+  --amber: #e5c07b;
+  --red: #e06c75;
+  --glow: rgba(70, 217, 138, .35);
 }
 
-html, body {
-  height: 100%;
+html, body { height: 100%; }
+body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas',
+    'Noto Sans Mono CJK SC', 'Microsoft YaHei UI', monospace;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.75;
   overflow: hidden;
-}
-
-body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0a0a1a 100%);
 }
 
-.container {
-  width: 100%;
-  max-width: 400px;
-  padding: 20px;
+/* ── CRT 扫描线 + 暗角 ─────────────────────── */
+.scanlines {
+  position: fixed; inset: 0; z-index: 40; pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, .16) 0px, rgba(0, 0, 0, .16) 1px,
+    transparent 1px, transparent 3px
+  );
+  opacity: .35;
+}
+.vignette {
+  position: fixed; inset: 0; z-index: 41; pointer-events: none;
+  background: radial-gradient(110% 90% at 50% 45%, transparent 60%, rgba(0, 0, 0, .5) 100%);
 }
 
-.card {
-  background: var(--card);
+/* ── 终端窗口 ──────────────────────────────── */
+.term {
+  width: min(660px, 94vw);
+  max-height: 92vh;
+  background: var(--term);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, .6),
+    0 24px 70px rgba(0, 0, 0, .65),
+    0 0 46px rgba(70, 217, 138, .06);
   overflow: hidden;
-}
-
-.header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.cover-wrap {
-  padding: 24px 24px 0;
-  display: flex;
-  justify-content: center;
-}
-
-.cover {
-  width: 180px;
-  height: 180px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #1e1b4b, #4338ca, #7c3aed);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 48px;
-  color: rgba(255, 255, 255, 0.15);
-  user-select: none;
-  box-shadow: 0 8px 32px rgba(124, 58, 237, 0.15);
-  transition: background 0.6s ease;
-}
-
-.cover.playing {
-  background: linear-gradient(135deg, #4338ca, #7c3aed, #a78bfa);
-}
-
-.track-info {
-  padding: 20px 24px 0;
-  text-align: center;
-}
-
-.track-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 4px;
-}
-
-.track-meta {
-  font-size: 12px;
-  color: var(--text2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.progress-wrap {
-  padding: 16px 24px 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.time-label {
-  font-size: 11px;
-  color: var(--text2);
-  min-width: 36px;
-  text-align: center;
-}
-
-.progress-bar {
-  flex: 1;
-  height: 4px;
-  background: var(--bar-bg);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--bar-fill);
-  border-radius: 2px;
-  width: 0%;
-  transition: width 0.3s linear;
-}
-
-.lyrics-wrap {
-  padding: 16px 24px 0;
-  min-height: 100px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
+}
+.term-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, .025);
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px; color: var(--mut);
+  user-select: none;
+}
+.term-bar .dots { display: flex; gap: 7px; margin-right: 6px; }
+.term-bar .dots i { width: 10px; height: 10px; border-radius: 50%; opacity: .75; }
+.term-bar .dots i:nth-child(1) { background: #ff5f56; }
+.term-bar .dots i:nth-child(2) { background: #ffbd2e; }
+.term-bar .dots i:nth-child(3) { background: #27c93f; }
+.term-bar .session { letter-spacing: .04em; }
+.term-bar .session b { color: var(--accent); font-weight: 600; }
+.term-bar .spec { margin-left: auto; color: var(--dim); font-size: 10.5px; }
+
+.term-body {
+  padding: 20px 24px 18px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dim) transparent;
 }
 
-.lyric-line {
-  text-align: center;
-  transition: all 0.3s ease;
-  min-height: 22px;
+/* ── 终端行 ────────────────────────────────── */
+.line { white-space: pre-wrap; word-break: break-all; }
+.prompt { color: var(--accent); text-shadow: 0 0 8px var(--glow); }
+.cmd { color: var(--text); }
+.comment { color: var(--dim); }
+.ok { color: var(--accent); }
+.caret {
+  display: inline-block; width: .62em; height: 1.1em;
+  background: var(--accent); vertical-align: -0.15em; margin-left: 2px;
+  box-shadow: 0 0 8px var(--glow);
+  animation: blink 1.06s steps(1) infinite;
+}
+@keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+
+.gap { height: 14px; }
+.gap-s { height: 6px; }
+
+/* ── 曲目 ──────────────────────────────────── */
+.track-line {
+  font-size: 17px; font-weight: 700; color: #eef7f1;
+  text-shadow: 0 0 16px rgba(70, 217, 138, .22);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.track-line .np { color: var(--accent); font-weight: 600; margin-right: 8px; }
+.meta-line { color: var(--mut); font-size: 12.5px; }
+.meta-line .k { color: var(--dim); }
+
+/* ── 进度 ──────────────────────────────────── */
+.progress-line {
+  font-size: 13px; color: var(--mut);
+  white-space: pre; overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.progress-line .bar-fill { color: var(--accent); text-shadow: 0 0 6px var(--glow); }
+.progress-line .bar-rest { color: var(--dim); }
+.progress-line .t { color: var(--text); }
+
+/* ── 歌词 ──────────────────────────────────── */
+.lyrics { min-height: 108px; }
+.l-cur {
+  color: var(--accent-hi); font-weight: 600;
+  text-shadow: 0 0 12px var(--glow);
+}
+.l-cur .gt { color: var(--accent); margin-right: 8px; }
+.l-next { color: var(--mut); font-size: 12.5px; padding-left: 1.4em; }
+.l-empty { color: var(--dim); font-style: italic; padding-left: 1.4em; }
+
+/* ── 状态行 ────────────────────────────────── */
+.status-line { font-size: 12.5px; color: var(--mut); }
+.status-line .st { font-weight: 600; }
+.st.playing { color: var(--accent); text-shadow: 0 0 8px var(--glow); }
+.st.paused { color: var(--amber); }
+.st.down { color: var(--red); animation: blink 1.2s steps(1) infinite; }
+
+/* ── 行进入动画 ────────────────────────────── */
+.line-in { animation: line-in .45s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes line-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
-.lyric-current {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--accent);
+/* ── 启幕（自动播放提示）────────────────────── */
+.gate {
+  position: fixed; inset: 0; z-index: 100; cursor: pointer;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
 }
-
-.lyric-next {
-  font-size: 13px;
-  color: var(--text2);
-  opacity: 0.7;
-}
-
-.lyric-empty {
-  font-size: 13px;
-  color: var(--text2);
-  opacity: 0.4;
-  font-style: italic;
-}
-
-.status-bar {
-  padding: 14px 20px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text2);
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text2);
-  transition: background 0.3s;
-}
-
-.status-dot.connected { background: var(--green); }
-.status-dot.playing { background: var(--accent); animation: pulse 1.5s infinite; }
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.autoplay-prompt {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-.autoplay-prompt .inner {
-  text-align: center;
-  padding: 32px;
-}
-
-.autoplay-prompt .icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-  color: var(--accent);
-}
-
-.autoplay-prompt .text {
+.gate.hidden { display: none; }
+.gate-box {
+  width: min(560px, 92vw);
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--term);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .65), 0 0 46px rgba(70, 217, 138, .06);
+  padding: 26px 28px;
   font-size: 14px;
-  color: var(--text);
-  margin-bottom: 8px;
 }
-
-.autoplay-prompt .hint {
-  font-size: 12px;
-  color: var(--text2);
+.gate-box .press {
+  margin-top: 16px; color: var(--amber); font-weight: 600; letter-spacing: .14em;
+  animation: blink 1.3s steps(1) infinite;
 }
+.gate-box .hint { margin-top: 6px; color: var(--dim); font-size: 12px; }
 
-.autoplay-prompt.hidden { display: none; }
-
-@media (max-width: 480px) {
-  .container { padding: 12px; }
-  .cover { width: 150px; height: 150px; font-size: 40px; }
+@media (max-width: 560px) {
+  body { font-size: 13px; }
+  .term-body { padding: 16px 16px 14px; }
+  .track-line { font-size: 15px; }
+  .progress-line { font-size: 11.5px; }
+  .term-bar .spec { display: none; }
 }
 </style>
 </head>
 <body>
-<div class="autoplay-prompt" id="autoplay-prompt">
-  <div class="inner">
-    <div class="icon">&#9835;</div>
-    <div class="text">点击任意位置开始播放</div>
-    <div class="hint">浏览器需要用户交互才能播放音频</div>
+
+<div class="scanlines"></div>
+<div class="vignette"></div>
+
+<div class="gate" id="gate">
+  <div class="gate-box">
+    <div class="line"><span class="prompt">$</span> <span class="cmd">listen --join</span></div>
+    <div class="line comment"># MusiCLI 一起听 · 实时同步主机的播放</div>
+    <div class="press" id="gate-press">[ 按任意键 / 点击 接入音频流 ]</div>
+    <div class="hint" id="gate-hint">浏览器需要用户交互才能播放音频</div>
   </div>
 </div>
 
-<div class="container">
-  <div class="card">
-    <div class="header">
-      <span>&#9835;</span> MusiCLI 一起听
-    </div>
-    <div class="cover-wrap">
-      <div class="cover" id="cover">&#9835;</div>
-    </div>
-    <div class="track-info">
-      <div class="track-title" id="title">等待主办方播放...</div>
-      <div class="track-meta" id="meta">&nbsp;</div>
-    </div>
-    <div class="progress-wrap">
-      <span class="time-label" id="time-pos">0:00</span>
-      <div class="progress-bar">
-        <div class="progress-fill" id="progress"></div>
+<div class="term">
+  <div class="term-bar">
+    <span class="dots"><i></i><i></i><i></i></span>
+    <span class="session"><b>musicli</b>@listen: ~/live</span>
+    <span class="spec">UTF-8 · bash · 80×24</span>
+  </div>
+  <div class="term-body">
+    <div class="line"><span class="prompt">$</span> <span class="cmd" id="type-cmd"></span><span class="caret" id="type-caret"></span></div>
+    <div class="line comment" id="echo-comment" style="display:none"># 已接入主机音频流 · 只读模式（无法控制播放）</div>
+    <div id="rest" style="display:none">
+      <div class="gap"></div>
+      <div class="line track-line" id="title-line"><span class="np">♪</span><span id="title">等待主办方播放…</span></div>
+      <div class="line meta-line" id="meta"><span class="k">#</span> —</div>
+      <div class="gap"></div>
+      <div class="line progress-line" id="progress">[<span class="bar-rest">──────────────────────────</span>] <span class="t">0:00 / 0:00</span></div>
+      <div class="gap"></div>
+      <div class="lyrics" id="lyrics">
+        <div class="l-empty"># 暂无歌词</div>
       </div>
-      <span class="time-label" id="time-dur">0:00</span>
-    </div>
-    <div class="lyrics-wrap" id="lyrics">
-      <div class="lyric-line lyric-empty">暂无歌词</div>
-    </div>
-    <div class="status-bar">
-      <span class="status-dot" id="status-dot"></span>
-      <span id="status-text">连接中...</span>
+      <div class="gap"></div>
+      <div class="line status-line">
+        <span class="prompt">$</span> <span class="cmd">status</span> <span class="comment">#</span>
+        <span class="st" id="status-text">CONNECTING…</span><span class="caret"></span>
+      </div>
     </div>
   </div>
 </div>
 
 <!--MUSICLI_JS-->
 <script>
-(function() {
-  var $ = function(s) { return document.querySelector(s); };
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
 
-  // ── Autoplay prompt — bind FIRST, before any MusiCLIPlayer code ────
-  // Ensures the overlay is always dismissible even if musicli.js fails
-  // to load (404, CWD mismatch, etc.) and the rest of the IIFE aborts.
-  var prompt = $('#autoplay-prompt');
-  var promptDismissed = false;
+  // ── 先绑定启幕层：即使播放器脚本加载失败也可关闭 ──
+  var gate = $('#gate');
+  var gateOff = false;
   var player = null;
 
-  function dismissPrompt() {
-    if (promptDismissed) return;
-    promptDismissed = true;
-    prompt.classList.add('hidden');
+  function dismissGate() {
+    if (gateOff) return;
+    gateOff = true;
+    gate.classList.add('hidden');
     if (player) player.resume();
+    boot();
   }
-
-  prompt.addEventListener('click', dismissPrompt);
-  document.addEventListener('keydown', function(e) {
+  gate.addEventListener('click', dismissGate);
+  document.addEventListener('keydown', function (e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
-    dismissPrompt();
+    dismissGate();
   });
 
-  // ── Guard: if musicli.js failed to load, show error and stop ──────
   if (typeof MusiCLIPlayer === 'undefined') {
-    prompt.querySelector('.text').textContent = 'musicli.js 加载失败';
-    prompt.querySelector('.hint').textContent = '请检查 HTTP 服务器是否正常运行';
-    prompt.querySelector('.icon').textContent = '!';
+    $('#gate-press').textContent = '[ 加载失败 ]';
+    $('#gate-press').style.color = '#e06c75';
+    $('#gate-hint').textContent = 'musicli.js 未就绪，请检查 HTTP 服务器';
     return;
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────
+  // ── 开机动画：打字机（启幕关闭后执行）─────────
+  var booted = false;
+  function boot() {
+    if (booted) return;
+    booted = true;
+    var cmd = 'listen --join --live';
+    var el = $('#type-cmd');
+    var i = 0;
+    var timer = setInterval(function () {
+      el.textContent = cmd.slice(0, ++i);
+      if (i >= cmd.length) {
+        clearInterval(timer);
+        setTimeout(function () {
+          $('#type-caret').style.display = 'none';
+          $('#echo-comment').style.display = '';
+          $('#rest').style.display = '';
+          $('#echo-comment').classList.add('line-in');
+          $('#rest').classList.add('line-in');
+        }, 260);
+      }
+    }, 42);
+  }
 
   function escapeHtml(s) {
     var d = document.createElement('div');
@@ -322,99 +281,107 @@ body {
     return d.innerHTML;
   }
 
+  var BAR_LEN = 26;
+  function renderBar(pos, dur) {
+    var pct = dur > 0 ? Math.min(1, pos / dur) : 0;
+    var filled = Math.round(pct * BAR_LEN);
+    var html = '[<span class="bar-fill">' + '█'.repeat(filled) + '</span>' +
+      '<span class="bar-rest">' + '░'.repeat(BAR_LEN - filled) + '</span>] ' +
+      '<span class="t">' + MusiCLIPlayer.formatTime(pos) + ' / ' + MusiCLIPlayer.formatTime(dur) + '</span>';
+    $('#progress').innerHTML = html;
+  }
+
   function renderLyrics() {
     var el = $('#lyrics');
     var lyrics = player.lyrics;
     var idx = player.currentLyricIndex;
-    if (lyrics.length === 0) {
-      el.innerHTML = '<div class="lyric-line lyric-empty">暂无歌词</div>';
+    if (!lyrics.length) {
+      el.innerHTML = '<div class="l-empty"># 纯音乐 / 暂无歌词</div>';
       return;
     }
     var html = '';
     if (idx >= 0 && idx < lyrics.length) {
-      html += '<div class="lyric-line lyric-current">' + escapeHtml(lyrics[idx].text) + '</div>';
-    }
-    for (var i = 1; i <= 3; i++) {
-      var ni = idx + i;
-      if (ni < lyrics.length) {
-        html += '<div class="lyric-line lyric-next">' + escapeHtml(lyrics[ni].text) + '</div>';
+      html += '<div class="l-cur line-in"><span class="gt">&gt;</span>' + escapeHtml(lyrics[idx].text) + '</div>';
+      for (var i = 1; i <= 3; i++) {
+        var ni = idx + i;
+        if (ni < lyrics.length) {
+          html += '<div class="l-next">' + escapeHtml(lyrics[ni].text) + '</div>';
+        }
+      }
+    } else {
+      html += '<div class="l-empty"># 前奏…</div>';
+      for (var j = 0; j < Math.min(3, lyrics.length); j++) {
+        html += '<div class="l-next">' + escapeHtml(lyrics[j].text) + '</div>';
       }
     }
-    if (!html) html = '<div class="lyric-line lyric-empty">暂无歌词</div>';
     el.innerHTML = html;
   }
 
   function updateStatus() {
-    var dot = $('#status-dot');
-    var text = $('#status-text');
-    dot.className = 'status-dot';
+    var st = $('#status-text');
+    st.className = 'st';
     if (!player.connected) {
-      text.textContent = '连接中...';
+      st.classList.add('down');
+      st.textContent = 'RECONNECTING…';
     } else if (player.playing) {
-      dot.className = 'status-dot connected playing';
-      text.textContent = '播放中';
+      st.classList.add('playing');
+      st.textContent = 'LIVE · 同步播放中';
     } else {
-      dot.className = 'status-dot connected';
-      text.textContent = '已暂停';
+      st.classList.add('paused');
+      st.textContent = 'PAUSED · 主机已暂停';
     }
   }
 
-  // ── Player setup ───────────────────────────────────────────────────
-
   player = new MusiCLIPlayer();
 
-  player.on('track', function(track) {
-    var title = track.title || '';
+  player.on('track', function (track) {
+    var title = track.title || '未知曲目';
     var artist = track.artist || '';
     var album = track.album || '';
-    $('#title').textContent = title || '未知曲目';
-    var meta = artist;
-    if (album) meta += ' \u00b7 ' + album;
-    $('#meta').textContent = meta || '\u00a0';
-    $('#time-dur').textContent = MusiCLIPlayer.formatTime(track.duration);
+
+    var line = $('#title-line');
+    line.classList.remove('line-in');
+    void line.offsetWidth;
+    $('#title').textContent = title;
+    line.classList.add('line-in');
+
+    var meta = [];
+    if (artist) meta.push(artist);
+    if (album) meta.push(album);
+    if (track.codec) meta.push(String(track.codec).toUpperCase());
+    var m = $('#meta');
+    m.innerHTML = '<span class="k">#</span> ' + escapeHtml(meta.join(' · ') || '未知艺术家');
+    m.classList.remove('line-in');
+    void m.offsetWidth;
+    m.classList.add('line-in');
+
+    renderBar(player.position, track.duration || player.duration);
     renderLyrics();
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: title, artist: artist, album: album
-      });
+      navigator.mediaSession.metadata = new MediaMetadata({ title: title, artist: artist, album: album });
     }
     updateStatus();
   });
 
-  player.on('state', function(s) {
-    if (s.playing) {
-      $('#cover').classList.add('playing');
-    } else {
-      $('#cover').classList.remove('playing');
-    }
-    $('#time-dur').textContent = MusiCLIPlayer.formatTime(s.duration);
+  player.on('state', function (s) {
     updateStatus();
   });
 
-  player.on('tick', function(pos) {
-    $('#time-pos').textContent = MusiCLIPlayer.formatTime(pos);
-    var pct = player.duration > 0 ? Math.min(100, pos / player.duration * 100) : 0;
-    $('#progress').style.width = pct + '%';
+  player.on('tick', function (pos) {
+    renderBar(pos, player.duration);
   });
 
-  player.on('lyric', function(idx) {
-    renderLyrics();
-  });
-
-  player.on('connect', function() {
-    updateStatus();
-  });
-
-  player.on('disconnect', function() {
-    updateStatus();
-  });
-
-  player.on('play', function() {
-    promptDismissed = true;
-    prompt.classList.add('hidden');
+  player.on('lyric', function () { renderLyrics(); });
+  player.on('connect', updateStatus);
+  player.on('disconnect', updateStatus);
+  player.on('play', function () {
+    gateOff = true;
+    gate.classList.add('hidden');
+    boot();
   });
 
   updateStatus();
+  renderBar(0, 0);
   player.start();
 })();
 </script>

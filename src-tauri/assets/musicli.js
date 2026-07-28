@@ -65,6 +65,7 @@
     this._basePos = 0;
     this._baseChunk = 0;
     this._baseTime = 0;
+    this._calibAudioTime = 0;
     this._lyrics = [];
     this._lyricIdx = -1;
     this._connected = false;
@@ -85,16 +86,24 @@
   Object.defineProperty(MusiCLIPlayer.prototype, 'position', {
     get: function() {
       if (this._destroyed) return 0;
-      // Chunk-calibrated: estimate current chunk from elapsed time,
-      // then position = basePos + chunk_delta × 0.1s.
-      // On each state event the server recalibrates (_basePos, _baseChunk).
       if (!this._playing) return this._basePos;
+      // Chunk-calibrated via the audio element's own timeline.
+      // audio.currentTime advances by exactly 0.1 s per consumed PCM chunk
+      // and freezes when the stream carries silence (host paused), so it
+      // stays sample-accurate with what the listener actually hears —
+      // unlike Date.now() which drifts after pause/resume cycles.
+      if (this._audio) {
+        var pos = this._basePos + (this._audio.currentTime - this._calibAudioTime);
+        if (pos < 0) pos = 0;
+        if (this._duration > 0 && pos > this._duration) pos = this._duration;
+        return pos;
+      }
+      // Fallback: wall-clock estimate (audio element unavailable).
       var elapsed = Date.now() - this._baseTime;
-      var estChunks = elapsed / 100;          // each chunk = 100ms
-      var pos = this._basePos + estChunks * 0.1;
-      if (pos < 0) pos = 0;
-      if (this._duration > 0 && pos > this._duration) pos = this._duration;
-      return pos;
+      var estPos = this._basePos + elapsed / 1000;
+      if (estPos < 0) estPos = 0;
+      if (this._duration > 0 && estPos > this._duration) estPos = this._duration;
+      return estPos;
     }
   });
   Object.defineProperty(MusiCLIPlayer.prototype, 'chunk', {
@@ -191,6 +200,7 @@
         self._lyricIdx = -1;
         self._basePos = 0;
         self._baseTime = Date.now();
+        self._calibAudioTime = self._audio ? self._audio.currentTime : 0;
 
         if (!self._connected) {
           self._connected = true;
@@ -203,14 +213,41 @@
     self._es.addEventListener('state', function(e) {
       try {
         var d = JSON.parse(e.data);
+        var wasPlaying = self._playing;
         self._playing = d.playing;
         if (d.duration > 0) self._duration = d.duration;
-        if (d.position != null) {
-          self._basePos = d.position;
-          self._baseTime = Date.now();
-        }
         if (d.chunk != null) {
           self._baseChunk = d.chunk;
+        }
+
+        if (d.position != null) {
+          if (d.playing) {
+            // Playing: accept server calibration.
+            // Guard against missed-pause: if the server position is far
+            // behind the client estimate the host is actually paused and
+            // we missed the transition event — snap to paused state.
+            if (wasPlaying) {
+              var elapsed = Date.now() - self._baseTime;
+              var expected = self._basePos + elapsed / 1000;
+              if (expected - d.position > 3) {
+                self._playing = false;
+              }
+            }
+            self._basePos = d.position;
+            self._baseTime = Date.now();
+            self._calibAudioTime = self._audio ? self._audio.currentTime : 0;
+          } else {
+            // Paused: freeze position.  The server's audio_position() keeps
+            // advancing during pause (silence chunks still increment the
+            // chunk counter), so periodic syncs carry ever-growing positions.
+            // Only capture the position on the play→pause transition; ignore
+            // subsequent advances while paused.
+            if (wasPlaying) {
+              self._basePos = d.position;
+            }
+            self._baseTime = Date.now();
+            self._calibAudioTime = self._audio ? self._audio.currentTime : 0;
+          }
         }
 
         if (!self._connected) {
@@ -219,7 +256,7 @@
         }
         self._emit('state', {
           playing: self._playing,
-          position: d.position,
+          position: self._basePos,
           duration: self._duration,
           chunk: self._baseChunk
         });
