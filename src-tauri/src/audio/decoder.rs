@@ -75,15 +75,28 @@ pub(crate) fn decode_loop(
 }
 
 /// After resampling, write samples to the ring buffer (blocking).
+/// Returns false if stopped or if the consumer appears dead (timeout).
 fn write_to_ring(ring_prod: &rb::Producer<f32>, samples: &[f32], stop_flag: &Arc<SharedState>) -> bool {
     let mut written = 0;
+    let mut consecutive_failures: u32 = 0;
+    // After ~2 seconds of failed writes (400 × 5ms), assume the output
+    // stream is dead and bail out to prevent a deadlock in stop_internal().
+    const MAX_FAILURES: u32 = 400;
     while written < samples.len() {
         if stop_flag.stop_flag.load(Ordering::Relaxed) {
             return false;
         }
         match ring_prod.write(&samples[written..]) {
-            Ok(n) => written += n,
+            Ok(n) => {
+                written += n;
+                consecutive_failures = 0;
+            }
             Err(_) => {
+                consecutive_failures += 1;
+                if consecutive_failures >= MAX_FAILURES {
+                    eprintln!("[audio-decoder] ring buffer write timeout — output stream likely dead");
+                    return false;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
@@ -197,8 +210,58 @@ fn decode_inner(
         }
 
         if eof {
+            // Wait for the ring buffer to drain before signaling track end.
+            // The output callback advances position_samples as it consumes
+            // data; once position reaches duration the audible playback is
+            // truly finished.  This prevents the frontend from seeing
+            // playing=false while there is still audio in the buffer.
+            let dur = state.duration_secs.load();
+            let sr = state.sample_rate.load(Ordering::Relaxed).max(1) as u64;
+            let dur_samples = (dur * sr as f64) as u64;
+            let mut drain_wait_ms: u64 = 0;
+            // Max drain wait: ring buffer is ~93ms; allow generous margin.
+            // Also bail if position stops advancing (dead output stream).
+            let mut last_pos = state.position_samples.load(Ordering::Relaxed);
+            let mut stall_ms: u64 = 0;
+            loop {
+                if state.stop_flag.load(Ordering::Relaxed) {
+                    return;
+                }
+                let pos = state.position_samples.load(Ordering::Relaxed);
+                if dur_samples == 0 || pos >= dur_samples {
+                    break;
+                }
+                // Detect stalled output (position not advancing).
+                if pos == last_pos {
+                    stall_ms += 10;
+                    if stall_ms >= 500 {
+                        break; // output stream dead — give up
+                    }
+                } else {
+                    stall_ms = 0;
+                    last_pos = pos;
+                }
+                drain_wait_ms += 10;
+                if drain_wait_ms >= 2000 {
+                    break; // safety cap
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
             state.playing.store(false, Ordering::Relaxed);
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            // Park until stopped or a seek arrives (e.g. repeat-one replays
+            // the same file via playIndex → load_track → seek_request).
+            loop {
+                if state.stop_flag.load(Ordering::Relaxed) {
+                    return;
+                }
+                if state.seek_request.load(Ordering::Relaxed) >= 0 {
+                    // A seek was requested — re-enter the decode loop so the
+                    // seek handler at the top can process it.
+                    eof = false;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
             continue;
         }
 
