@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MusiCLI · 一起听</title>
+<style>
+:root {
+  --paper: #f3eddc;
+  --paper-2: #e9e0c8;
+  --ink: #2e2a23;
+  --ink-60: rgba(46, 42, 35, .6);
+  --ink-45: rgba(46, 42, 35, .45);
+  --ink-38: rgba(46, 42, 35, .38);
+  --ink-14: rgba(46, 42, 35, .14);
+  --cinnabar: #a0392a;
+  --cinnabar-deep: #8a2f22;
+  --dai: #44523f;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif;
+  color: var(--ink);
+  background:
+    radial-gradient(120% 90% at 50% 6%, rgba(255, 252, 240, .6), rgba(255, 252, 240, 0) 55%),
+    radial-gradient(140% 120% at 50% 118%, rgba(120, 100, 60, .18), rgba(120, 100, 60, 0) 55%),
+    linear-gradient(160deg, var(--paper) 0%, var(--paper-2) 100%);
+  overflow: hidden;
+}
+/* 宣纸纹理 */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  opacity: .55; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+}
+
+/* ── 双线装裱框 ─────────────────────────────── */
+.frame { position: fixed; inset: 14px; border: 1px solid var(--ink-38); pointer-events: none; z-index: 3; }
+.frame::before { content: ""; position: absolute; inset: 5px; border: 1px solid var(--ink-14); }
+.frame i { position: absolute; width: 18px; height: 18px; border: 0 solid var(--cinnabar); }
+.frame i:nth-child(1) { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+.frame i:nth-child(2) { top: -1px; right: -1px; border-top-width: 2px; border-right-width: 2px; }
+.frame i:nth-child(3) { bottom: -1px; left: -1px; border-bottom-width: 2px; border-left-width: 2px; }
+.frame i:nth-child(4) { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
+
+/* ── 月洞门 ─────────────────────────────────── */
+.moon-gate {
+  position: fixed; left: 50%; top: 42%; width: 58vmin; height: 58vmin;
+  transform: translate(-50%, -50%); border-radius: 50%; z-index: 0;
+  border: 1px solid var(--ink-14);
+  background: radial-gradient(circle at 50% 46%, rgba(255, 253, 244, .55), rgba(255, 253, 244, 0) 68%);
+}
+.moon-gate::before { content: ""; position: absolute; inset: 12px; border-radius: 50%; border: 1px solid rgba(46, 42, 35, .08); }
+
+/* ── 远山 ───────────────────────────────────── */
+.mountains { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; pointer-events: none; z-index: 0; }
+.mountains.far { height: 24vh; opacity: .55; }
+.mountains.near { height: 17vh; }
+
+/* ── 卷首 ───────────────────────────────────── */
+.masthead {
+  position: fixed; top: 34px; left: 0; right: 0; z-index: 4;
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  font-size: 13px; letter-spacing: .5em; text-indent: .5em; color: var(--ink-60);
+}
+.masthead .rule { position: relative; width: 72px; height: 1px; background: var(--ink-38); }
+.masthead .rule::after {
+  content: ""; position: absolute; top: -2.5px; width: 5px; height: 5px;
+  background: var(--cinnabar); transform: rotate(45deg);
+}
+.masthead .rule.l::after { right: 0; }
+.masthead .rule.r::after { left: 0; }
+
+/* ── 主景 ───────────────────────────────────── */
+.stage {
+  position: fixed; inset: 0; z-index: 4;
+  display: flex; align-items: center; justify-content: center;
+  gap: clamp(40px, 9vw, 130px);
+  padding-bottom: 12vh;
+}
+.seal-col { display: flex; align-items: center; gap: 26px; }
+.v-hint {
+  writing-mode: vertical-rl; font-size: 13px; letter-spacing: .45em;
+  color: var(--ink-45); user-select: none;
+}
+.seal {
+  width: 86px; height: 86px; display: grid; place-items: center;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif; font-size: 46px;
+  color: #f7f0dd; user-select: none;
+  background: linear-gradient(145deg, #b0463a, var(--cinnabar) 42%, var(--cinnabar-deep));
+  border-radius: 10px; transform: rotate(-2.5deg);
+  box-shadow:
+    inset 0 0 0 3px rgba(247, 240, 221, .32),
+    inset 0 0 22px rgba(90, 20, 10, .5),
+    0 8px 22px rgba(80, 30, 20, .28);
+  animation: seal-breathe 5s ease-in-out infinite;
+}
+@keyframes seal-breathe {
+  0%, 100% { transform: rotate(-2.5deg) translateY(0); }
+  50% { transform: rotate(-2.5deg) translateY(-4px); }
+}
+.vtext { display: flex; align-items: flex-start; gap: 22px; }
+.v-title {
+  writing-mode: vertical-rl;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", "Noto Serif SC", serif;
+  font-size: clamp(30px, 6.6vh, 54px); font-weight: 700; letter-spacing: .22em;
+  max-height: 42vh; overflow: hidden; color: var(--ink);
+}
+.v-meta {
+  writing-mode: vertical-rl; font-size: 14px; letter-spacing: .34em;
+  color: var(--ink-60); max-height: 32vh; overflow: hidden; padding-top: 6px;
+}
+.ink-in { animation: ink-in .8s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes ink-in {
+  from { opacity: 0; filter: blur(6px); transform: translateY(10px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+
+/* ── 唱词 ───────────────────────────────────── */
+.lyrics {
+  position: fixed; left: 50%; bottom: 15.5vh; transform: translateX(-50%);
+  z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 9px;
+  width: min(680px, 86vw); text-align: center;
+}
+.l-cur {
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", "Noto Serif SC", serif;
+  font-size: clamp(19px, 3vh, 26px); color: rgba(46, 42, 35, .94); letter-spacing: .12em;
+  display: flex; align-items: center; gap: 12px;
+}
+.l-cur::before, .l-cur::after {
+  content: ""; width: 5px; height: 5px; background: var(--cinnabar);
+  transform: rotate(45deg); flex: none; opacity: .85;
+}
+.l-next { font-size: 14px; color: var(--ink-45); letter-spacing: .1em; }
+.l-next.far { opacity: .55; }
+.l-empty { font-size: 14px; color: var(--ink-38); font-style: italic; letter-spacing: .2em; }
+
+/* ── progress / 进度 ─────────────────────── */
+.bottom { position: fixed; left: 0; right: 0; bottom: 34px; z-index: 4; }
+.progress-row {
+  display: flex; align-items: center; gap: 16px;
+  width: min(620px, 84vw); margin: 0 auto;
+}
+.time { font-size: 12px; color: var(--ink-45); min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+.ink-bar { position: relative; flex: 1; height: 2px; background: var(--ink-14); }
+.ink-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+  background: linear-gradient(90deg, var(--ink-38), var(--ink));
+}
+.ink-dot {
+  position: absolute; top: 50%; left: 0%; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--cinnabar); transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 4px rgba(160, 57, 42, .14);
+}
+.status-row {
+  margin-top: 14px; display: flex; align-items: center; justify-content: center;
+  gap: 10px; font-size: 12px; letter-spacing: .28em; color: var(--ink-45);
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-38); flex: none; }
+.status-dot.on { background: var(--dai); }
+.status-dot.play { background: var(--cinnabar); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.status-row .sep { opacity: .5; }
+.brand { letter-spacing: .18em; }
+
+/* ── 启幕 ───────────────────────────────────── */
+.gate {
+  position: fixed; inset: 0; z-index: 60; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(120% 90% at 50% 6%, rgba(255, 252, 240, .6), rgba(255, 252, 240, 0) 55%),
+    linear-gradient(160deg, var(--paper) 0%, var(--paper-2) 100%);
+}
+.gate.hidden { display: none; }
+.gate-inner { text-align: center; }
+.gate-seal {
+  width: 100px; height: 100px; margin: 0 auto 26px; display: grid; place-items: center;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif; font-size: 54px; color: #f7f0dd;
+  background: linear-gradient(145deg, #b0463a, var(--cinnabar) 42%, var(--cinnabar-deep));
+  border-radius: 12px; transform: rotate(-3deg);
+  box-shadow:
+    inset 0 0 0 3px rgba(247, 240, 221, .32),
+    inset 0 0 22px rgba(90, 20, 10, .5),
+    0 10px 26px rgba(80, 30, 20, .3);
+  animation: gate-pulse 2.2s ease-in-out infinite;
+}
+@keyframes gate-pulse {
+  0%, 100% { transform: rotate(-3deg) scale(1); }
+  50% { transform: rotate(-3deg) scale(1.05); }
+}
+.gate-text { font-family: "STKaiti", "KaiTi", "Kaiti SC", serif; font-size: 22px; letter-spacing: .3em; text-indent: .3em; }
+.gate-hint { margin-top: 12px; font-size: 12px; letter-spacing: .24em; color: var(--ink-45); }
+
+@media (max-width: 680px) {
+  .stage { flex-direction: column-reverse; gap: 26px; padding-bottom: 16vh; }
+  .v-title { max-height: 30vh; font-size: 28px; }
+  .v-meta { max-height: 22vh; }
+  .seal { width: 64px; height: 64px; font-size: 34px; }
+  .v-hint { display: none; }
+  .masthead { font-size: 11px; }
+}
+</style>
+</head>
+<body>
+
+<div class="frame"><i></i><i></i><i></i><i></i></div>
+<div class="moon-gate"></div>
+
+<svg class="mountains far" viewBox="0 0 1440 180" preserveAspectRatio="none">
+  <path fill="#2e2a23" fill-opacity="0.06" d="M0,150 C120,110 200,58 320,84 C440,110 520,150 660,132 C800,114 880,40 1020,64 C1160,88 1260,140 1440,106 L1440,180 L0,180 Z"/>
+</svg>
+<svg class="mountains near" viewBox="0 0 1440 180" preserveAspectRatio="none">
+  <path fill="#2e2a23" fill-opacity="0.1" d="M0,180 L0,134 C140,96 260,130 400,116 C540,102 620,152 760,142 C900,132 980,82 1120,100 C1260,118 1360,150 1440,136 L1440,180 Z"/>
+</svg>
+
+<header class="masthead">
+  <span class="rule l"></span><span>MusiCLI · 一起听</span><span class="rule r"></span>
+</header>
+
+<main class="stage">
+  <div class="seal-col">
+    <div class="seal">聽</div>
+    <div class="v-hint">天涯共此时</div>
+  </div>
+  <section class="vtext">
+    <h1 class="v-title" id="vTitle">静候佳音</h1>
+    <p class="v-meta" id="vMeta">尚未开演</p>
+  </section>
+</main>
+
+<section class="lyrics" id="lyrics">
+  <div class="l-empty">曲未起 · 词未至</div>
+</section>
+
+<footer class="bottom">
+  <div class="progress-row">
+    <span class="time" id="timePos">0:00</span>
+    <div class="ink-bar">
+      <div class="ink-fill" id="inkFill"></div>
+      <div class="ink-dot" id="inkDot"></div>
+    </div>
+    <span class="time" id="timeDur">0:00</span>
+  </div>
+  <div class="status-row">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">寻音中…</span>
+    <span class="sep">·</span>
+    <span class="brand">MusiCLI 一起听</span>
+  </div>
+</footer>
+
+<div class="gate" id="gate">
+  <div class="gate-inner">
+    <div class="gate-seal">聽</div>
+    <div class="gate-text">轻触以闻丝竹</div>
+    <div class="gate-hint">浏览器需交互后方可奏乐</div>
+  </div>
+</div>
+
+<!--MUSICLI_JS-->
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+
+  // ── 先绑定启幕层：即使播放器脚本加载失败也可关闭 ──
+  var gate = $('#gate');
+  var gateOff = false;
+  var player = null;
+
+  function dismissGate() {
+    if (gateOff) return;
+    gateOff = true;
+    gate.classList.add('hidden');
+    if (player) player.resume();
+  }
+  gate.addEventListener('click', dismissGate);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+    dismissGate();
+  });
+
+  if (typeof MusiCLIPlayer === 'undefined') {
+    gate.querySelector('.gate-text').textContent = '丝竹未备';
+    gate.querySelector('.gate-hint').textContent = 'musicli.js 加载失败，请检查服务';
+    return;
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderLyrics() {
+    var el = $('#lyrics');
+    var lyrics = player.lyrics;
+    var idx = player.currentLyricIndex;
+    if (!lyrics.length) {
+      el.innerHTML = '<div class="l-empty">此曲无词 · 但听丝竹</div>';
+      return;
+    }
+    var html = '';
+    if (idx >= 0 && idx < lyrics.length) {
+      html += '<div class="l-cur ink-in" key="' + idx + '">' + escapeHtml(lyrics[idx].text) + '</div>';
+      if (idx + 1 < lyrics.length) html += '<div class="l-next">' + escapeHtml(lyrics[idx + 1].text) + '</div>';
+      if (idx + 2 < lyrics.length) html += '<div class="l-next far">' + escapeHtml(lyrics[idx + 2].text) + '</div>';
+    } else {
+      for (var i = 0; i < Math.min(2, lyrics.length); i++) {
+        html += '<div class="l-next' + (i === 1 ? ' far' : '') + '">' + escapeHtml(lyrics[i].text) + '</div>';
+      }
+    }
+    el.innerHTML = html;
+  }
+
+  function updateStatus() {
+    var dot = $('#statusDot');
+    var text = $('#statusText');
+    dot.className = 'status-dot';
+    if (!player.connected) {
+      text.textContent = '寻音中…';
+    } else if (player.playing) {
+      dot.className = 'status-dot on play';
+      text.textContent = '丝竹共赏中';
+    } else {
+      dot.className = 'status-dot on';
+      text.textContent = '暂歇片刻';
+    }
+  }
+
+  player = new MusiCLIPlayer();
+
+  player.on('track', function (track) {
+    var title = track.title || '未知曲目';
+    var artist = track.artist || '';
+    var album = track.album || '';
+    var meta = artist;
+    if (album) meta += (meta ? ' · ' : '') + album;
+
+    var t = $('#vTitle');
+    var m = $('#vMeta');
+    t.classList.remove('ink-in'); m.classList.remove('ink-in');
+    void t.offsetWidth; // 重启动画
+    t.textContent = title;
+    m.textContent = meta || '佚名';
+    t.classList.add('ink-in'); m.classList.add('ink-in');
+
+    $('#timeDur').textContent = MusiCLIPlayer.formatTime(track.duration);
+    renderLyrics();
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: title, artist: artist, album: album });
+    }
+    updateStatus();
+  });
+
+  player.on('state', function (s) {
+    $('#timeDur').textContent = MusiCLIPlayer.formatTime(s.duration);
+    updateStatus();
+  });
+
+  player.on('tick', function (pos) {
+    $('#timePos').textContent = MusiCLIPlayer.formatTime(pos);
+    var pct = player.duration > 0 ? Math.min(100, pos / player.duration * 100) : 0;
+    $('#inkFill').style.width = pct + '%';
+    $('#inkDot').style.left = pct + '%';
+  });
+
+  player.on('lyric', function () { renderLyrics(); });
+  player.on('connect', updateStatus);
+  player.on('disconnect', function () {
+    $('#statusDot').className = 'status-dot';
+    $('#statusText').textContent = '音信暂断 · 重连中…';
+  });
+  player.on('play', function () {
+    gateOff = true;
+    gate.classList.add('hidden');
+  });
+
+  updateStatus();
+  player.start();
+})();
+</script>
+</body>
+</html>
