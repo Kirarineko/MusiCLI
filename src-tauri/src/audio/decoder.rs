@@ -65,6 +65,7 @@ pub(crate) fn decode_loop(
     ring_prod: rb::Producer<f32>,
     mut resampler: Option<AudioResampler>,
 ) {
+    let state_exit = Arc::clone(&state);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         decode_inner(path, state, ring_prod, &mut resampler);
     }));
@@ -72,6 +73,14 @@ pub(crate) fn decode_loop(
     if let Err(e) = result {
         eprintln!("[audio-decoder] panicked: {:?}", e);
     }
+
+    // Whatever the exit reason (stop, fatal read/decode error, ring-buffer
+    // write timeout, panic) — the decoder no longer produces audio, so make
+    // sure the frontend doesn't keep showing "playing". On a normal stop,
+    // stop_internal() has already stored false; on a subsequent play(), the
+    // old thread is joined *before* the new one sets playing=true, so this
+    // cannot clobber a fresh session.
+    state_exit.playing.store(false, Ordering::Relaxed);
 }
 
 /// After resampling, write samples to the ring buffer (blocking).
@@ -102,6 +111,25 @@ fn write_to_ring(ring_prod: &rb::Producer<f32>, samples: &[f32], stop_flag: &Arc
         }
     }
     true
+}
+
+/// Flush the resampler's buffered tail into the ring buffer at end of
+/// stream, so the last <chunk_size frames of the track aren't dropped.
+fn flush_resampler_tail(
+    resampler: &mut Option<AudioResampler>,
+    ring_prod: &rb::Producer<f32>,
+    state: &Arc<SharedState>,
+) {
+    if let Some(ref mut r) = resampler {
+        match r.flush() {
+            Ok(tail) => {
+                if !tail.is_empty() {
+                    let _ = write_to_ring(ring_prod, &tail, state);
+                }
+            }
+            Err(e) => eprintln!("[audio-decoder] flush error: {}", e),
+        }
+    }
 }
 
 fn decode_inner(
@@ -268,12 +296,14 @@ fn decode_inner(
         let packet = match reader.next_packet() {
             Ok(Some(p)) => p,
             Ok(None) => {
+                flush_resampler_tail(resampler, &ring_prod, &state);
                 eof = true;
                 continue;
             }
             Err(symphonia::core::errors::Error::IoError(ref err))
                 if err.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
+                flush_resampler_tail(resampler, &ring_prod, &state);
                 eof = true;
                 continue;
             }

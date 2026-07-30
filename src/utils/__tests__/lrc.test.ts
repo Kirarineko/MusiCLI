@@ -16,10 +16,12 @@ describe('parseLRC', () => {
     expect(lines.map(l => l.text)).toEqual(['A', 'B', 'C']);
   });
 
-  it('skips empty text lines', () => {
+  it('preserves empty text lines (instrumental breaks)', () => {
     const lines = parseLRC('[00:01.00] \n[00:02.00]Hello\n[00:03.00]\n');
-    expect(lines).toHaveLength(1);
-    expect(lines[0].text).toBe('Hello');
+    expect(lines).toHaveLength(3);
+    expect(lines[0].text).toBe('');
+    expect(lines[1].text).toBe('Hello');
+    expect(lines[2].text).toBe('');
   });
 
   it('skips metadata tags', () => {
@@ -45,6 +47,13 @@ describe('parseLRC', () => {
     const lines = parseLRC('[00:01.500]Hello');
     expect(lines).toHaveLength(1);
     expect(lines[0].time).toBe(0.5 + 1);
+  });
+
+  it('handles 3-digit milliseconds with leading zeros', () => {
+    const lines = parseLRC('[00:01.050]A\n[00:02.005]B');
+    expect(lines).toHaveLength(2);
+    expect(lines[0].time).toBeCloseTo(1.05);
+    expect(lines[1].time).toBeCloseTo(2.005);
   });
 
   it('handles lines without milliseconds', () => {

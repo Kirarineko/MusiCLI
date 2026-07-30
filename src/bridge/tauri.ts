@@ -274,17 +274,25 @@ export const tauriBridge = {
 
   onLyricsUpdate(callback: (data: LyricsUpdateData) => void): () => void {
     let unlisten: UnlistenFn | null = null;
+    let disposed = false;
     listen<LyricsUpdateData>('lyrics:update', (event) => {
       callback(event.payload);
-    }).then(fn => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    }).then(fn => {
+      // If cleanup ran before listen() resolved, unregister immediately
+      // instead of leaking the listener.
+      if (disposed) fn(); else unlisten = fn;
+    });
+    return () => { disposed = true; unlisten?.(); };
   },
 
   onLyricsTheme(callback: (data: LyricsThemeData) => void): () => void {
     let unlisten: UnlistenFn | null = null;
+    let disposed = false;
     listen<LyricsThemeData>('lyrics:update-theme', (event) => {
       callback(event.payload);
-    }).then(fn => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    }).then(fn => {
+      if (disposed) fn(); else unlisten = fn;
+    });
+    return () => { disposed = true; unlisten?.(); };
   },
 };

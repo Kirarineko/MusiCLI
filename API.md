@@ -268,11 +268,11 @@ List audio files in directory (supports mp3/flac/wav/ogg/m4a/wma).
 Same as `/files` — lists audio files in directory.
 
 ### GET /files/read
-Read any file as base64 string.
+Read an audio file as base64 string. Restricted to audio files **inside the configured music folder** — requests for paths outside it (or non-audio files) return `403`.
 
 **Query** `?path=/path/to/file.ext`
 
-**Response** `200` — base64-encoded string
+**Response** `200` — base64-encoded string; `403` — path outside music folder or not an audio file
 
 ### GET /devices
 List available audio output devices.

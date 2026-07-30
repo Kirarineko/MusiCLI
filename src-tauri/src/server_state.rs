@@ -13,7 +13,10 @@ pub struct NamedPlaylist {
 }
 
 pub struct ServerState {
-    pub audio_engine: Mutex<AudioEngine>,
+    /// Arc so heavy engine operations (play/stop — they block on decode
+    /// probing and stream setup) can be performed *without* holding the
+    /// outer ServerState lock, keeping other commands responsive.
+    pub audio_engine: Arc<Mutex<AudioEngine>>,
     pub playlist: Mutex<Vec<String>>,
     pub current_index: Mutex<Option<usize>>,
     // Named playlists
@@ -47,7 +50,7 @@ impl Default for ServerState {
 impl ServerState {
     pub fn new() -> Self {
         Self {
-            audio_engine: Mutex::new(AudioEngine::new()),
+            audio_engine: Arc::new(Mutex::new(AudioEngine::new())),
             playlist: Mutex::new(Vec::new()),
             current_index: Mutex::new(None),
             playlists: Mutex::new(vec![NamedPlaylist {

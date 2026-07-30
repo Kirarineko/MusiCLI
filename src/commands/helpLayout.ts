@@ -47,6 +47,7 @@ export function printHelp(
   printLine('  ' + t('helpGroupSystem'), 'dim');
   printRaw('    listen                ' + t('helpListen'));
   printRaw('    listen ui             ' + t('helpListenUi'));
+  printRaw('    share [n|name]        ' + t('helpShare'));
   printRaw('    lang <en|zh|ja>       ' + t('helpLang'));
   printRaw('    reset                 ' + t('helpReset'));
   printRaw('    clear                 ' + t('helpClear'));

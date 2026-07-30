@@ -289,39 +289,62 @@ async fn play(
     state: AxumState<SharedState>,
     Json(req): Json<PlayRequest>,
 ) -> Result<Json<StatusResponse>, (StatusCode, String)> {
-    let s = state.lock().unwrap();
-    let playlist = s.playlist.lock().unwrap().clone();
-    let idx = if let Some(i) = req.index {
-        if i >= playlist.len() {
-            // 触发错误: drop s 后重试是不可行的，直接返回错误
-            return Err((StatusCode::BAD_REQUEST, "Index out of range".into()));
+    // Resolve the target track and grab the engine Arc while holding the
+    // state lock, then release it — engine.play() blocks on decode probing
+    // and stream setup and must not stall every other handler.
+    let (engine_arc, path, idx, prev_idx, pm) = {
+        let s = state.lock().unwrap();
+        let playlist = s.playlist.lock().unwrap().clone();
+        if playlist.is_empty() {
+            return Err((StatusCode::NOT_FOUND, "Playlist is empty".into()));
         }
-        i
-    } else if let Some(ref path) = req.path {
-        let pos = playlist.iter().position(|p| p == path);
-        pos.unwrap_or(0)
-    } else {
-        s.current_index.lock().unwrap().unwrap_or(0)
+        let idx = if let Some(i) = req.index {
+            if i >= playlist.len() {
+                return Err((StatusCode::BAD_REQUEST, "Index out of range".into()));
+            }
+            i
+        } else if let Some(ref path) = req.path {
+            playlist.iter().position(|p| p == path).unwrap_or(0)
+        } else {
+            // Clamp: current_index may be stale if the playlist shrank.
+            s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1)
+        };
+        let path = playlist[idx].clone();
+        let prev_idx = *s.current_index.lock().unwrap();
+        *s.current_index.lock().unwrap() = Some(idx);
+        let pm = s.play_mode.lock().unwrap().clone();
+        (s.audio_engine.clone(), path, idx, prev_idx, pm)
     };
-    if playlist.is_empty() {
-        return Err((StatusCode::NOT_FOUND, "Playlist is empty".into()));
-    }
-    let path = playlist[idx].clone();
-    drop(playlist);
-    let mut engine = s.audio_engine.lock().unwrap();
-    engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    *s.current_index.lock().unwrap() = Some(idx);
 
-    let dur = engine.get_duration();
-    let pos = engine.get_position();
-    let plen = s.playlist.lock().unwrap().len();
-    let pm = s.play_mode.lock().unwrap().clone();
+    let play_result = {
+        let mut engine = engine_arc.lock().unwrap();
+        match engine.play(&path) {
+            Ok(()) => Ok((
+                engine.get_position(),
+                engine.get_duration(),
+                engine.get_volume(),
+                engine.get_mode().to_string(),
+            )),
+            Err(e) => Err(e),
+        }
+    };
+    let (pos, dur, vol, mode) = match play_result {
+        Ok(v) => v,
+        Err(e) => {
+            // Roll back the optimistic index update.
+            let s = state.lock().unwrap();
+            *s.current_index.lock().unwrap() = prev_idx;
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, e));
+        }
+    };
+
+    let plen = state.lock().unwrap().playlist.lock().unwrap().len();
     Ok(Json(StatusResponse {
         playing: true,
         position: pos,
         duration: dur,
-        volume: engine.get_volume(),
-        mode: engine.get_mode().to_string(),
+        volume: vol,
+        mode,
         play_mode: pm,
         current_index: Some(idx),
         playlist_len: plen,
@@ -337,139 +360,185 @@ async fn pause(state: AxumState<SharedState>) -> Result<StatusCode, (StatusCode,
 }
 
 async fn stop(state: AxumState<SharedState>) -> Result<StatusCode, (StatusCode, String)> {
-    let s = state.lock().unwrap();
-    let mut engine = s.audio_engine.lock().unwrap();
+    // stop() joins the decoder thread — don't hold the state lock meanwhile.
+    let engine_arc = { let s = state.lock().unwrap(); s.audio_engine.clone() };
+    let mut engine = engine_arc.lock().unwrap();
     engine.stop();
 
     Ok(StatusCode::OK)
 }
 
 async fn next_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse>, (StatusCode, String)> {
-    let s = state.lock().unwrap();
-    let playlist = s.playlist.lock().unwrap().clone();
-    if playlist.is_empty() {
-        return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
-    }
-    let cur = s.current_index.lock().unwrap().unwrap_or(0);
-    let pm = s.play_mode.lock().unwrap().clone();
-
-    let idx = match pm.as_str() {
-        "repeat-one" => cur,
-        "shuffle" => {
-            // Pick a random index different from the current one.
-            if playlist.len() == 1 {
-                cur
-            } else {
-                use std::collections::HashSet;
-                let mut picked: HashSet<usize> = HashSet::new();
-                picked.insert(cur);
-                let mut result = cur;
-                let mut seed = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(0)
-                    .wrapping_add(cur as u64);
-                while picked.len() < playlist.len() {
-                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    let cand = (seed as usize) % playlist.len();
-                    if picked.insert(cand) { result = cand; break; }
-                }
-                result
-            }
+    // Pick the next index under the state lock, then release it before the
+    // blocking engine.play() / engine.stop() calls.
+    let (engine_arc, target, prev_idx, pm, plen) = {
+        let s = state.lock().unwrap();
+        let playlist = s.playlist.lock().unwrap().clone();
+        if playlist.is_empty() {
+            return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
         }
-        // "normal" and "repeat-all": advance, stop at end for "normal".
-        _ => {
-            if cur + 1 < playlist.len() {
-                cur + 1
-            } else if pm == "repeat-all" {
-                0
-            } else {
-                // normal mode at end — stop playback.
-                let mut engine = s.audio_engine.lock().unwrap();
-                engine.stop();
-                *s.current_index.lock().unwrap() = None;
-            
-                let plen = playlist.len();
-                return Ok(Json(StatusResponse {
-                    playing: false,
-                    position: 0.0,
-                    duration: engine.get_duration(),
-                    volume: engine.get_volume(),
-                    mode: engine.get_mode().to_string(),
-                    play_mode: pm,
-                    current_index: None,
-                    playlist_len: plen,
-                    current_track: None,
-                }));
+        // Clamp: current_index may be stale if the playlist shrank.
+        let cur = s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1);
+        let pm = s.play_mode.lock().unwrap().clone();
+        let plen = playlist.len();
+
+        let idx_opt = match pm.as_str() {
+            "repeat-one" => Some(cur),
+            "shuffle" => {
+                // Pick a random index different from the current one.
+                if playlist.len() == 1 {
+                    Some(cur)
+                } else {
+                    use std::collections::HashSet;
+                    let mut picked: HashSet<usize> = HashSet::new();
+                    picked.insert(cur);
+                    let mut result = cur;
+                    let mut seed = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0)
+                        .wrapping_add(cur as u64);
+                    while picked.len() < playlist.len() {
+                        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                        let cand = (seed as usize) % playlist.len();
+                        if picked.insert(cand) { result = cand; break; }
+                    }
+                    Some(result)
+                }
             }
+            // "normal" and "repeat-all": advance, stop at end for "normal".
+            _ => {
+                if cur + 1 < playlist.len() {
+                    Some(cur + 1)
+                } else if pm == "repeat-all" {
+                    Some(0)
+                } else {
+                    None // normal mode at end — stop playback
+                }
+            }
+        };
+
+        let prev_idx = *s.current_index.lock().unwrap();
+        let target = idx_opt.map(|idx| (playlist[idx].clone(), idx));
+        *s.current_index.lock().unwrap() = idx_opt;
+        (s.audio_engine.clone(), target, prev_idx, pm, plen)
+    };
+
+    let (path, idx) = match target {
+        Some(t) => t,
+        None => {
+            let mut engine = engine_arc.lock().unwrap();
+            engine.stop();
+            return Ok(Json(StatusResponse {
+                playing: false,
+                position: 0.0,
+                duration: engine.get_duration(),
+                volume: engine.get_volume(),
+                mode: engine.get_mode().to_string(),
+                play_mode: pm,
+                current_index: None,
+                playlist_len: plen,
+                current_track: None,
+            }));
         }
     };
 
-    let path = playlist[idx].clone();
-    drop(playlist);
-    let mut engine = s.audio_engine.lock().unwrap();
-    engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    *s.current_index.lock().unwrap() = Some(idx);
-
-    let plen = s.playlist.lock().unwrap().len();
-    Ok(Json(StatusResponse {
-        playing: true,
-        position: engine.get_position(),
-        duration: engine.get_duration(),
-        volume: engine.get_volume(),
-        mode: engine.get_mode().to_string(),
-        play_mode: pm,
-        current_index: Some(idx),
-        playlist_len: plen,
-        current_track: Some(path),
-    }))
+    let play_result = {
+        let mut engine = engine_arc.lock().unwrap();
+        match engine.play(&path) {
+            Ok(()) => Ok((
+                engine.get_position(),
+                engine.get_duration(),
+                engine.get_volume(),
+                engine.get_mode().to_string(),
+            )),
+            Err(e) => Err(e),
+        }
+    };
+    match play_result {
+        Ok((pos, dur, vol, mode)) => Ok(Json(StatusResponse {
+            playing: true,
+            position: pos,
+            duration: dur,
+            volume: vol,
+            mode,
+            play_mode: pm,
+            current_index: Some(idx),
+            playlist_len: plen,
+            current_track: Some(path),
+        })),
+        Err(e) => {
+            let s = state.lock().unwrap();
+            *s.current_index.lock().unwrap() = prev_idx;
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e))
+        }
+    }
 }
 
 async fn prev_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse>, (StatusCode, String)> {
-    let s = state.lock().unwrap();
-    let playlist = s.playlist.lock().unwrap().clone();
-    if playlist.is_empty() {
-        return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
-    }
-    let cur = s.current_index.lock().unwrap().unwrap_or(0);
-    let pm = s.play_mode.lock().unwrap().clone();
-    let idx = match pm.as_str() {
-        "repeat-one" => cur,
-        "shuffle" => {
-            if playlist.len() == 1 { cur } else {
-                let mut seed = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(0)
-                    .wrapping_add((cur as u64).wrapping_mul(2654435761));
-                let mut chosen = cur;
-                while chosen == cur {
-                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    chosen = (seed as usize) % playlist.len();
-                }
-                chosen
-            }
+    // Same pattern as next_track: resolve under the state lock, play outside it.
+    let (engine_arc, path, idx, prev_idx, pm, plen) = {
+        let s = state.lock().unwrap();
+        let playlist = s.playlist.lock().unwrap().clone();
+        if playlist.is_empty() {
+            return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
         }
-        _ => if cur > 0 { cur - 1 } else { playlist.len().saturating_sub(1) },
+        let cur = s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1);
+        let pm = s.play_mode.lock().unwrap().clone();
+        let idx = match pm.as_str() {
+            "repeat-one" => cur,
+            "shuffle" => {
+                if playlist.len() == 1 { cur } else {
+                    let mut seed = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0)
+                        .wrapping_add((cur as u64).wrapping_mul(2654435761));
+                    let mut chosen = cur;
+                    while chosen == cur {
+                        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                        chosen = (seed as usize) % playlist.len();
+                    }
+                    chosen
+                }
+            }
+            _ => if cur > 0 { cur - 1 } else { playlist.len().saturating_sub(1) },
+        };
+        let prev_idx = *s.current_index.lock().unwrap();
+        *s.current_index.lock().unwrap() = Some(idx);
+        (s.audio_engine.clone(), playlist[idx].clone(), idx, prev_idx, pm, playlist.len())
     };
-    let path = playlist[idx].clone();
-    drop(playlist);
-    let mut engine = s.audio_engine.lock().unwrap();
-    engine.play(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    *s.current_index.lock().unwrap() = Some(idx);
 
-    let plen = s.playlist.lock().unwrap().len();
-    Ok(Json(StatusResponse {
-        playing: true,
-        position: engine.get_position(),
-        duration: engine.get_duration(),
-        volume: engine.get_volume(),
-        mode: engine.get_mode().to_string(),
-        play_mode: pm,
-        current_index: Some(idx),
-        playlist_len: plen,
-        current_track: Some(path),
-    }))
+    let play_result = {
+        let mut engine = engine_arc.lock().unwrap();
+        match engine.play(&path) {
+            Ok(()) => Ok((
+                engine.get_position(),
+                engine.get_duration(),
+                engine.get_volume(),
+                engine.get_mode().to_string(),
+            )),
+            Err(e) => Err(e),
+        }
+    };
+    match play_result {
+        Ok((pos, dur, vol, mode)) => Ok(Json(StatusResponse {
+            playing: true,
+            position: pos,
+            duration: dur,
+            volume: vol,
+            mode,
+            play_mode: pm,
+            current_index: Some(idx),
+            playlist_len: plen,
+            current_track: Some(path),
+        })),
+        Err(e) => {
+            let s = state.lock().unwrap();
+            *s.current_index.lock().unwrap() = prev_idx;
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e))
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -511,10 +580,11 @@ async fn mode(
     state: AxumState<SharedState>,
     Json(req): Json<ModeRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    let s = state.lock().unwrap();
-    let mut engine = s.audio_engine.lock().unwrap();
     let am = AudioMode::from_str(&req.mode)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // set_mode may stop + replay the current track — don't hold the state lock.
+    let engine_arc = { let s = state.lock().unwrap(); s.audio_engine.clone() };
+    let mut engine = engine_arc.lock().unwrap();
     engine.set_mode(am);
     Ok(Json(engine.get_mode().to_string()))
 }
@@ -596,10 +666,11 @@ async fn set_audio_mode(
     state: AxumState<SharedState>,
     Json(req): Json<ModeRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    let s = state.lock().unwrap();
-    let mut engine = s.audio_engine.lock().unwrap();
     let am = AudioMode::from_str(&req.mode)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // set_mode may stop + replay the current track — don't hold the state lock.
+    let engine_arc = { let s = state.lock().unwrap(); s.audio_engine.clone() };
+    let mut engine = engine_arc.lock().unwrap();
     engine.set_mode(am);
     Ok(Json(engine.get_mode().to_string()))
 }
@@ -742,14 +813,19 @@ struct PathQuery {
 }
 
 async fn read_file_base64(
+    state: AxumState<SharedState>,
     Query(q): Query<PathQuery>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    // Restrict to audio files: the HTTP API is network-exposed (0.0.0.0)
-    // and must not allow arbitrary file exfiltration.
-    if !crate::core::files::is_audio_file(std::path::Path::new(&q.path)) {
-        return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
-    }
-    crate::core::files::read_file_base64(&q.path)
+    // The HTTP API is network-exposed (0.0.0.0): restrict to audio files
+    // *inside* the configured music folder — an extension check alone would
+    // still allow exfiltrating any audio file on the machine by absolute path.
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let canon = validate_audio_in_folder(&q.path, &mf)?;
+    crate::core::files::read_file_base64(&canon.to_string_lossy())
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }

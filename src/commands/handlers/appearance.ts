@@ -227,6 +227,12 @@ export function registerAppearanceCommands() {
 
     const s = parseFloat(args[0]);
     if (!isNaN(s)) {
+      // Reject negative targets — the engine ignores negative seek requests
+      // but would still reset the displayed position, desyncing the UI.
+      if (s < 0 || !isFinite(s)) {
+        c.printLine(t('helpSeek'), 'info');
+        return;
+      }
       c.seek(s);
       c.printLine(t('seekSet', { t: formatTime(s) }), 'success');
       return;

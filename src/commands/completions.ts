@@ -2,13 +2,9 @@
 // value is the array of valid next words.
 export const subCompletions: Record<string, string[]> = {
   sync: ['pl', 'playlist', 'theme'],
-  share: ['pl', 'playlist', 'theme'],
   'sync pl': ['export', 'import'],
   'sync playlist': ['export', 'import'],
   'sync theme': ['save', 'load', 'apply', 'switch', 'list', 'ls', 'delete', 'rm', 'del', 'export', 'import'],
-  'share pl': ['export', 'import'],
-  'share playlist': ['export', 'import'],
-  'share theme': ['save', 'load', 'apply', 'switch', 'list', 'ls', 'delete', 'rm', 'del', 'export', 'import'],
 
   pl: ['create', 'new', 'list', 'ls', 'delete', 'rm', 'del', 'edit', 'info'],
 

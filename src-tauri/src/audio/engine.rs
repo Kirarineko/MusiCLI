@@ -216,6 +216,11 @@ impl AudioEngine {
     }
 
     pub fn seek(&self, seconds: f64) {
+        // Clamp negative targets: the decoder only honors seek_request >= 0,
+        // so a negative request would be silently dropped while
+        // position_samples below was already reset — permanently desyncing
+        // the reported position from actual playback.
+        let seconds = if seconds.is_finite() { seconds.max(0.0) } else { return };
         let sr = self.state.sample_rate.load(Ordering::Relaxed);
         if sr > 0 {
             let sample = (seconds * sr as f64) as i64;

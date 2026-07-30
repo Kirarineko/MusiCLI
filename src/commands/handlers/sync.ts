@@ -7,7 +7,7 @@ import { hasError } from '../../utils/guards';
 import { escapeHtml } from '../../utils/format';
 
 export function registerSyncCommands() {
-  register('sync', ['share'], async (args) => {
+  register('sync', [], async (args) => {
     const c = ctx();
     const sub = (args[0] || '').toLowerCase();
     const rest = args.slice(1);

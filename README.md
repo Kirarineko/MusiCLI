@@ -215,6 +215,7 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 | - | - |
 | `listen` | 开启一起听，分享链接 |
 | `listen ui` | 选择自定义 HTML WebUI（放在 {music_folder}/Listen_WebUI） |
+| `share [n|歌名]` | 生成单曲直听链接并自动复制（[host] 占位符替换为自己的 IP/域名） |
 | `remote start|stop|status` | HTTP API 状态 |
 | `lang <en|zh|ja>` | 切换语言 |
 | `help` | 帮助 |
@@ -392,6 +393,7 @@ var player = new MusiCLIPlayer();
 | `player.lyrics` | `Array` | 歌词数组 `[{time, text}, ...]` |
 | `player.currentLyricIndex` | `Number` | 当前歌词行索引（-1 表示无匹配行） |
 | `player.connected` | `boolean` | SSE 是否已连接 |
+| `player.live` | `boolean` | 当前播放模式：`true` = 一起听实时同步，`false` = 单曲分享（URL 带 `?path=`，由 share 命令生成） |
 
 
 #### TrackInfo 结构

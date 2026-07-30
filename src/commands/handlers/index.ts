@@ -136,6 +136,7 @@ import { registerSystemCommands } from './system';
 import { registerLyricsCommands } from './lyrics';
 import { registerAppearanceCommands } from './appearance';
 import { registerSyncCommands } from './sync';
+import { registerShareCommands } from './share';
 import { registerPlaylistCommands } from './playlist';
 import { registerPlaybackCommands } from './playback';
 
@@ -144,6 +145,7 @@ export function registerAllCommands() {
   registerLyricsCommands();
   registerAppearanceCommands();
   registerSyncCommands();
+  registerShareCommands();
   registerPlaylistCommands();
   registerPlaybackCommands();
 }

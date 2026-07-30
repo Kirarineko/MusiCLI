@@ -40,14 +40,25 @@ impl std::str::FromStr for AudioMode {
 
 // --- Tauri Commands (GUI only) ---
 
+/// Grab the engine Arc and immediately release the outer ServerState lock,
+/// so slow engine operations (probe/decode/stream setup) don't block every
+/// other command and HTTP handler on the ServerState mutex.
+#[cfg(feature = "gui")]
+fn engine_arc(
+    state: &tauri::State<'_, Arc<Mutex<ServerState>>>,
+) -> Result<Arc<Mutex<crate::audio::engine::AudioEngine>>, String> {
+    let s = state.lock().map_err(|e| e.to_string())?;
+    Ok(s.audio_engine.clone())
+}
+
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn load_track(
     state: tauri::State<'_, Arc<Mutex<ServerState>>>,
     path: String,
 ) -> Result<f64, String> {
-    let s = state.lock().unwrap();
-    let mut engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let mut engine = engine.lock().map_err(|e| e.to_string())?;
     engine.load_track(&path)
 }
 
@@ -57,16 +68,16 @@ pub async fn play(
     state: tauri::State<'_, Arc<Mutex<ServerState>>>,
     path: String,
 ) -> Result<(), String> {
-    let s = state.lock().unwrap();
-    let mut engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let mut engine = engine.lock().map_err(|e| e.to_string())?;
     engine.play(&path)
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn pause(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<(), String> {
-    let s = state.lock().unwrap();
-    let engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     engine.pause();
     Ok(())
 }
@@ -74,8 +85,8 @@ pub async fn pause(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<(
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn stop(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<(), String> {
-    let s = state.lock().unwrap();
-    let mut engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let mut engine = engine.lock().map_err(|e| e.to_string())?;
     engine.stop();
     Ok(())
 }
@@ -86,8 +97,8 @@ pub async fn seek(
     state: tauri::State<'_, Arc<Mutex<ServerState>>>,
     seconds: f64,
 ) -> Result<(), String> {
-    let s = state.lock().unwrap();
-    let engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     engine.seek(seconds);
     Ok(())
 }
@@ -98,8 +109,8 @@ pub async fn set_volume(
     state: tauri::State<'_, Arc<Mutex<ServerState>>>,
     vol: u32,
 ) -> Result<(), String> {
-    let s = state.lock().unwrap();
-    let engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     engine.set_volume(vol);
     Ok(())
 }
@@ -107,16 +118,16 @@ pub async fn set_volume(
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn get_position(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<f64, String> {
-    let s = state.lock().unwrap();
-    let engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     Ok(engine.get_position())
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn get_duration(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<f64, String> {
-    let s = state.lock().unwrap();
-    let engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     Ok(engine.get_duration())
 }
 
@@ -137,8 +148,8 @@ pub async fn set_audio_mode(
         }
     }
 
-    let s = state.lock().unwrap();
-    let mut engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let mut engine = engine.lock().map_err(|e| e.to_string())?;
     engine.set_mode(audio_mode);
     Ok(format!("Audio mode set to: {}", audio_mode))
 }
@@ -146,24 +157,24 @@ pub async fn set_audio_mode(
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub fn is_playing(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<bool, String> {
-    let s = state.lock().map_err(|e| e.to_string())?;
-    let engine = s.audio_engine.lock().map_err(|e| e.to_string())?;
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     Ok(engine.is_playing())
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub fn get_volume(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<u32, String> {
-    let s = state.lock().map_err(|e| e.to_string())?;
-    let engine = s.audio_engine.lock().map_err(|e| e.to_string())?;
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     Ok(engine.get_volume())
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn get_audio_mode(state: tauri::State<'_, Arc<Mutex<ServerState>>>) -> Result<String, String> {
-    let s = state.lock().unwrap();
-    let engine = s.audio_engine.lock().unwrap();
+    let engine = engine_arc(&state)?;
+    let engine = engine.lock().map_err(|e| e.to_string())?;
     Ok(engine.get_mode().to_string())
 }
 

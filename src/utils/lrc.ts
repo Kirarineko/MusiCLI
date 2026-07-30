@@ -9,11 +9,17 @@ export function parseLRC(content: string): LrcLine[] {
     if (match) {
       const min = parseInt(match[1], 10);
       const sec = parseInt(match[2], 10);
-      let ms = match[3] ? parseInt(match[3], 10) : 0;
-      if (ms < 100) ms *= 10;
+      // 2 digits = centiseconds, 3 digits = milliseconds — decide by string
+      // length, not value (".050" is 50ms, not 500ms). Matches the Rust
+      // parser in src-tauri/src/lrc_parser.rs.
+      const frac = match[3] || '';
+      const ms = frac ? (frac.length === 2 ? parseInt(frac, 10) * 10 : parseInt(frac, 10)) : 0;
       const time = min * 60 + sec + ms / 1000;
       const text = match[4].trim();
-      if (text) lines.push({ time, text });
+      // Preserve empty-text lines — they mark instrumental breaks and their
+      // timestamps are needed for correct current-line tracking (matches the
+      // Rust parser behavior).
+      lines.push({ time, text });
     }
   }
   lines.sort((a, b) => a.time - b.time);

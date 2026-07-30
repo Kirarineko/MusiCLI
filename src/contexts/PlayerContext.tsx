@@ -332,8 +332,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             const idx = nextShuffleIndex();
             if (idx >= 0) { newIdx = idx; playIndex(idx); }
           } else if (playModeRef.current === 'repeat-all') {
-            newIdx = (currentIndex + 1) % playlist.length;
-            playIndex(newIdx);
+            if (playlist.length > 0) {
+              newIdx = (currentIndex + 1) % playlist.length;
+              playIndex(newIdx);
+            } else {
+              setIsPlaying(false);
+            }
           } else {
             const nextTrack = currentIndex + 1;
             if (nextTrack < playlist.length) {
@@ -488,7 +492,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else {
       const startIdx = getCurrentLineIdx(lines, curPos);
       lastPrintedIdxRef.current = startIdx;
-      if (startIdx >= 0 && startIdx < lines.length && lyricsTerminalRef.current) {
+      if (startIdx >= 0 && startIdx < lines.length && lyricsTerminalRef.current && lines[startIdx].text) {
         const printFn = lyricPrinterRef.current;
         if (printFn) printFn(lines[startIdx].text, 'lyric');
       }
@@ -533,15 +537,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         // Forward advance
         if (newIdx - lastPrintedIdxRef.current > 10) {
           // Large jump (track switch or seek) — just print current line
-          if (newIdx >= 0) printFn(lyricsLines[newIdx].text, 'lyric');
+          if (newIdx >= 0 && lyricsLines[newIdx].text) printFn(lyricsLines[newIdx].text, 'lyric');
         } else {
           for (let i = lastPrintedIdxRef.current + 1; i <= newIdx; i++) {
-            printFn(lyricsLines[i].text, i === newIdx ? 'lyric' : 'dim');
+            // Skip empty lines (instrumental breaks) — nothing to print
+            if (lyricsLines[i].text) printFn(lyricsLines[i].text, i === newIdx ? 'lyric' : 'dim');
           }
         }
       } else {
         // Backward (seek) — can't unprint, but print current line as a marker
-        if (newIdx >= 0) printFn(lyricsLines[newIdx].text, 'lyric');
+        if (newIdx >= 0 && lyricsLines[newIdx].text) printFn(lyricsLines[newIdx].text, 'lyric');
       }
       lastPrintedIdxRef.current = newIdx;
     }

@@ -4,8 +4,6 @@ pub struct AudioResampler {
     inner: SincFixedIn<f32>,
     channels: usize,
     chunk_size: usize,
-    input_rate: u32,
-    output_rate: u32,
     /// Accumulated input samples (interleaved) not yet processed.
     buffer: Vec<f32>,
 }
@@ -34,8 +32,6 @@ impl AudioResampler {
             inner: resampler,
             channels,
             chunk_size,
-            input_rate,
-            output_rate,
             buffer: Vec::new(),
         })
     }
@@ -44,19 +40,9 @@ impl AudioResampler {
     /// Must be called after seeking.
     pub fn reset(&mut self) {
         self.buffer.clear();
-        let ratio = self.output_rate as f64 / self.input_rate as f64;
-        let params = SincInterpolationParameters {
-            sinc_len: 256,
-            f_cutoff: 0.95,
-            interpolation: SincInterpolationType::Linear,
-            oversampling_factor: 256,
-            window: WindowFunction::BlackmanHarris2,
-        };
-        if let Ok(inner) = SincFixedIn::<f32>::new(
-            ratio, 2.0, params, self.chunk_size, self.channels,
-        ) {
-            self.inner = inner;
-        }
+        // Infallible in-place reset — the previous implementation rebuilt the
+        // SincFixedIn and silently kept the *stale* filter state on failure.
+        self.inner.reset();
     }
 
     /// Resample interleaved f32 samples.  Accepts any number of input frames;
@@ -98,5 +84,18 @@ impl AudioResampler {
         }
 
         Ok(output)
+    }
+
+    /// Flush the remaining buffered samples (less than one chunk) by
+    /// zero-padding to a full chunk and processing it. Call at end of
+    /// stream — otherwise up to `chunk_size` frames of the track tail
+    /// would be silently dropped.
+    pub fn flush(&mut self) -> Result<Vec<f32>, String> {
+        if self.buffer.is_empty() {
+            return Ok(Vec::new());
+        }
+        let required = self.chunk_size * self.channels;
+        self.buffer.resize(required, 0.0);
+        self.process(&[])
     }
 }

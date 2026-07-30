@@ -11,6 +11,14 @@
  *   player.on('play',              function() {});
  *   player.on('autoplay-blocked',  function() {});
  *   player.start();
+ *
+ * Modes (auto-detected in start()):
+ *   live  — default; syncs to the host's real-time playback via
+ *           /stream?current=true + /stream/info SSE.
+ *   file  — when the page URL carries ?path=<audio>, plays that single
+ *           shared file via the Range-capable /stream?path= endpoint.
+ *           Same events are emitted, so any webui works unchanged.
+ *   player.live — boolean, true in live mode, false in file-share mode.
  */
 (function(global) {
   'use strict';
@@ -86,6 +94,7 @@
     this._lyrics = [];
     this._lyricIdx = -1;
     this._connected = false;
+    this._live = true;
   }
   MusiCLIPlayer.prototype = Object.create(Emitter.prototype);
   MusiCLIPlayer.prototype.constructor = MusiCLIPlayer;
@@ -103,6 +112,8 @@
   Object.defineProperty(MusiCLIPlayer.prototype, 'position', {
     get: function() {
       if (this._destroyed) return 0;
+      // File-share mode: the audio element's own timeline IS the position.
+      if (!this._live) return this._audio ? this._audio.currentTime : 0;
       if (!this._playing) return this._basePos;
       // Chunk-calibrated via the audio element's own timeline.
       // audio.currentTime advances by exactly 0.1 s per consumed PCM chunk
@@ -138,16 +149,34 @@
   Object.defineProperty(MusiCLIPlayer.prototype, 'connected', {
     get: function() { return this._connected; }
   });
+  // true = live listen-together, false = single-file share (?path=).
+  Object.defineProperty(MusiCLIPlayer.prototype, 'live', {
+    get: function() { return this._live; }
+  });
 
   // ── Public methods ─────────────────────────────────────────────────
 
   MusiCLIPlayer.prototype.start = function() {
     if (this._destroyed) return;
+    // File-share mode: /listen?path=<audio> plays one shared track.
+    var m = /[?&]path=([^&]+)/.exec(global.location.search || '');
+    if (m) {
+      this._live = false;
+      var p = m[1];
+      try { p = decodeURIComponent(p); } catch (_) {}
+      this._startFile(p);
+      return;
+    }
     this._startStream();
   };
 
   MusiCLIPlayer.prototype.resume = function() {
     if (!this._audio) return;
+    if (!this._live) {
+      // File-share mode: the src is a static Range stream — just retry play.
+      this._audio.play().catch(function() {});
+      return;
+    }
     this._audio.src = '/stream?current=true&_t=' + Date.now();
     this._audio.play().catch(function() {});
   };
@@ -167,6 +196,102 @@
       this._audio = null;
     }
     this._ls = {};
+  };
+
+  // ── Internal: file-share mode (?path=) ──────────────────────────
+
+  MusiCLIPlayer.prototype._startFile = function(path) {
+    var self = this;
+    var enc = encodeURIComponent(path);
+
+    self._audio = new Audio('/stream?path=' + enc);
+    self._audio.volume = 1.0;
+    self._audio.play().then(function() {
+      self._emit('play');
+    }).catch(function() {
+      self._emit('autoplay-blocked');
+    });
+
+    var emitState = function() {
+      self._emit('state', {
+        playing: self._playing,
+        position: self.position,
+        duration: self._duration,
+        chunk: 0
+      });
+    };
+
+    // Mirror the element's play/pause state so `playing` and the webui's
+    // status line behave exactly like live mode.
+    self._audio.addEventListener('play', function() {
+      self._playing = true;
+      emitState();
+    });
+    self._audio.addEventListener('pause', function() {
+      self._playing = false;
+      emitState();
+    });
+    self._audio.addEventListener('ended', function() {
+      self._playing = false;
+      emitState();
+    });
+    self._audio.addEventListener('loadedmetadata', function() {
+      if (!self._duration && isFinite(self._audio.duration)) {
+        self._duration = self._audio.duration;
+        emitState();
+      }
+    });
+
+    // rAF loop — same tick cadence as live mode
+    var loop = function(now) {
+      if (self._destroyed) return;
+      self._rafId = requestAnimationFrame(loop);
+      if (now - self._lastTick >= 50) {
+        self._lastTick = now;
+        self._tick();
+      }
+    };
+    self._rafId = requestAnimationFrame(loop);
+
+    // Fetch metadata + lyrics in parallel, then announce the track with
+    // the same event shape live mode uses.
+    var metaP = fetch('/metadata?path=' + enc)
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .catch(function() { return null; });
+    var lrcP = fetch('/lyrics/parse?audio_path=' + enc)
+      .then(function(r) { return r.ok ? r.json() : []; })
+      .catch(function() { return []; });
+
+    Promise.all([metaP, lrcP]).then(function(rs) {
+      if (self._destroyed) return;
+      var d = rs[0] || {};
+      var lyrics = Array.isArray(rs[1]) ? rs[1] : [];
+      var fallbackTitle = path.split(/[/\\]/).pop() || 'Shared Track';
+
+      self._lyrics = lyrics;
+      self._lyricIdx = -1;
+      self._track = {
+        path: path,
+        title: d.title || fallbackTitle,
+        artist: d.artist || '',
+        album: d.album || '',
+        duration: d.duration || self._duration || 0,
+        year: d.year != null ? d.year : null,
+        genre: d.genre || null,
+        bitrate: d.bitrate || null,
+        sample_rate: d.sample_rate != null ? d.sample_rate : (d.sampleRate != null ? d.sampleRate : null),
+        codec: d.codec || '',
+        lyrics: lyrics
+      };
+      if (self._track.duration) self._duration = self._track.duration;
+
+      if (!self._connected) {
+        self._connected = true;
+        self._emit('connect');
+      }
+      self._emit('track', self._track);
+      emitState();
+    });
   };
 
   // ── Internal: stream setup ─────────────────────────────────────────
