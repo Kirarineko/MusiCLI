@@ -31,6 +31,22 @@
     return -1;
   }
 
+  // The server's position estimate assumes the listener hears audio exactly
+  // PREBUFFER_SECS (25 × 0.1s) behind the send frontier.  The client's real
+  // lag is its own media-buffer depth, which can differ (element start-up
+  // delay, burst off-by-one, residual pacing drift).  Measure it via the
+  // buffered ranges and compensate so lyrics lock to the *audible* playback
+  // instead of a fixed assumption.  Must match the server's
+  // PREBUFFER_CHUNKS × CHUNK_DURATION_SECS.
+  var PREBUFFER_SECS = 2.5;
+  function correctForBuffer(audio, serverPos) {
+    if (!audio || !audio.buffered || audio.buffered.length === 0) return serverPos;
+    var lag = audio.buffered.end(audio.buffered.length - 1) - audio.currentTime;
+    if (lag < 0 || lag > 10) return serverPos;   // implausible — trust server
+    var corrected = serverPos + (PREBUFFER_SECS - lag);
+    return corrected < 0 ? 0 : corrected;
+  }
+
   // ── Tiny event emitter ─────────────────────────────────────────────
 
   function Emitter() { this._ls = {}; }
@@ -66,6 +82,7 @@
     this._baseChunk = 0;
     this._baseTime = 0;
     this._calibAudioTime = 0;
+    this._trackJustChanged = false;
     this._lyrics = [];
     this._lyricIdx = -1;
     this._connected = false;
@@ -201,6 +218,7 @@
         self._basePos = 0;
         self._baseTime = Date.now();
         self._calibAudioTime = self._audio ? self._audio.currentTime : 0;
+        self._trackJustChanged = true;
 
         if (!self._connected) {
           self._connected = true;
@@ -215,6 +233,8 @@
         var d = JSON.parse(e.data);
         var wasPlaying = self._playing;
         self._playing = d.playing;
+        var skipDrift = self._trackJustChanged;
+        self._trackJustChanged = false;
         if (d.duration > 0) self._duration = d.duration;
         if (d.chunk != null) {
           self._baseChunk = d.chunk;
@@ -222,18 +242,23 @@
 
         if (d.position != null) {
           if (d.playing) {
-            // Playing: accept server calibration.
+            // Playing: accept server calibration, corrected for the client's
+            // actual buffer depth (the server assumes a fixed PREBUFFER_SECS
+            // lag; correctForBuffer replaces it with the measured lag).
+            var pos = correctForBuffer(self._audio, d.position);
             // Guard against missed-pause: if the server position is far
             // behind the client estimate the host is actually paused and
             // we missed the transition event — snap to paused state.
-            if (wasPlaying) {
+            // Skip right after a track change: the position legitimately
+            // resets toward 0 and must not be mistaken for a pause.
+            if (wasPlaying && !skipDrift) {
               var elapsed = Date.now() - self._baseTime;
               var expected = self._basePos + elapsed / 1000;
-              if (expected - d.position > 3) {
+              if (expected - pos > 3) {
                 self._playing = false;
               }
             }
-            self._basePos = d.position;
+            self._basePos = pos;
             self._baseTime = Date.now();
             self._calibAudioTime = self._audio ? self._audio.currentTime : 0;
           } else {

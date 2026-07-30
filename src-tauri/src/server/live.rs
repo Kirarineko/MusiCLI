@@ -93,6 +93,11 @@ fn live_producer(
     let mut wav_channels: u16 = 2;
     let mut chunk_idx: usize = 0;
     let mut send_buf: Vec<u8> = Vec::with_capacity(64 * 1024);
+    // Absolute-deadline pacing state: `pace_epoch` is anchored when the
+    // first post-burst chunk is sent; the n-th paced chunk is due at
+    // pace_epoch + n × 100ms.
+    let mut pace_epoch: Option<Instant> = None;
+    let mut paced_sent: u64 = 0;
     // True once the prebuffer burst has finished and `stream_pos` has been
     // re-baselined to `engine_pos`. Until this is set the divergence-based
     // seek check (step 2) is suppressed — otherwise the burst sends 5s of
@@ -105,8 +110,6 @@ fn live_producer(
         if tx.is_closed() {
             break;
         }
-
-        let chunk_start = Instant::now();
 
         // 1. Detect track changes via epoch (atomic read every chunk, no lock
         //    unless the epoch actually changed). Also retries when the decoder
@@ -199,11 +202,19 @@ fn live_producer(
         send_buf.clear();
         let chunk = if let Some(ref mut d) = decoder {
             if playing {
-                let samples = d.decode_samples(sample_count);
+                let mut samples = d.decode_samples(sample_count);
                 if samples.is_empty() {
                     silence_bytes(sample_count, &mut send_buf);
                     send_buf.as_slice()
                 } else {
+                    // Pad partial chunks (EOF / seek priming) to exactly
+                    // CHUNK_DURATION_SECS of audio.  A short chunk would make
+                    // the client's audio-element timeline advance less than
+                    // the chunk counter assumes, and the resulting lag
+                    // accumulates across track changes.
+                    if samples.len() < sample_count {
+                        samples.resize(sample_count, 0.0);
+                    }
                     f32_to_s16_bytes(&samples, &mut send_buf);
                     send_buf.as_slice()
                 }
@@ -235,10 +246,21 @@ fn live_producer(
             continue;
         }
 
-        let elapsed = chunk_start.elapsed();
-        let sleep_time = Duration::from_millis(100).saturating_sub(elapsed);
-        if !sleep_time.is_zero() {
-            std::thread::sleep(sleep_time);
+        // Absolute-deadline pacing.  A relative "sleep(100ms - elapsed)"
+        // overshoots on every iteration (OS timer granularity) and the
+        // overshoot is never compensated, so chunks are sent slower than
+        // real-time.  That steadily drains the client's prebuffer below
+        // PREBUFFER_CHUNKS, and since audio_position() assumes a full
+        // prebuffer lag, the reported position falls behind what the
+        // listener actually hears (audio leads the lyrics, and the gap
+        // grows).  Sleeping to a fixed deadline makes the long-run rate
+        // exactly one chunk per 100ms regardless of per-iteration jitter.
+        let epoch = *pace_epoch.get_or_insert_with(Instant::now);
+        paced_sent += 1;
+        let deadline = epoch + Duration::from_millis(100 * paced_sent);
+        let now = Instant::now();
+        if now < deadline {
+            std::thread::sleep(deadline - now);
         }
     }
 }
@@ -360,7 +382,17 @@ fn live_info_producer(
                         // bumping the epoch.
                         let dur = shared.duration_secs.load();
                         let playing = shared.playing.load(Ordering::Relaxed);
-                        let pos = audio_position(&shared);
+                        // Use the engine's own position rather than
+                        // audio_position(): the live producer runs on a
+                        // separate thread and may not have rebased the
+                        // audio-tracking atomics for the new track yet, in
+                        // which case audio_position() still reflects the
+                        // *old* track and would send a wildly wrong position.
+                        // The engine commits position_samples before bumping
+                        // track_epoch, so this read (after the Acquire-load
+                        // of the epoch) is race-free.
+                        let dev_sr = shared.sample_rate.load(Ordering::Relaxed).max(1);
+                        let pos = shared.position_samples.load(Ordering::Relaxed) as f64 / dev_sr as f64;
                         let chunk = shared.audio_chunk_counter.load(Ordering::Relaxed);
                         let state_info = StateInfo {
                             playing,
