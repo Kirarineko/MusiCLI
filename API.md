@@ -11,6 +11,7 @@ By default the API is open. When the server is started with `--token <TOKEN>` (t
 
 Requests without a valid token get `401 Invalid or missing API token`.
 
+
 ## Playback
 
 ### GET /status

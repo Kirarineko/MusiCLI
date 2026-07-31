@@ -47,6 +47,7 @@ MusicLI 是一款**拟终端命令行风格**的桌面音乐播放器，使用 T
 
 - **配置持久化** — JSON 文件存储在音乐文件夹 `config/` 目录下，可手动编辑
 
+
 ### 安装
 
 从 [Releases](file:///home/kirarineko/releases) 下载对应平台包：
@@ -235,7 +236,7 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 
 ### Sync 分享
 
-`sync pl export` 将歌单打包为 ZIP：
+`sync pl export` 将歌单打为 ZIP：
 
 ```
 MusicLI_MyPlaylist_sync.zip  

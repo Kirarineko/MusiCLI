@@ -11,7 +11,7 @@ pnpm build            # TypeScript check + Vite production build
 pnpm typecheck        # Standalone typecheck (tsc -b), no build
 pnpm lint             # ESLint
 pnpm test             # Vitest (frontend unit tests)
-pnpm clean            # Remove dist/
+pnpm clean            # Remove dist
 cargo check           # Rust typecheck only (cd src-tauri first)
 cargo test            # Rust unit tests (cd src-tauri first)
 ```

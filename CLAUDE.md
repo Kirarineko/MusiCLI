@@ -12,6 +12,7 @@ pnpm tauri build      # Build release binary
 pnpm lint             # ESLint
 ```
 
+
 Package manager is **pnpm**.
 
 ### Prerequisites
