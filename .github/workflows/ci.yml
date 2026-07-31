@@ -68,3 +68,22 @@ jobs:
         with:
           name: musicli-headless-linux
           path: src-tauri/target/release/musicli
+
+  release-build-windows:
+    runs-on: windows-latest
+    needs: [frontend, backend]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Build headless binary
+        run: cargo build --release --bin musicli --no-default-features
+        working-directory: src-tauri
+      - name: Upload headless binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicli-headless-windows
+          path: src-tauri/target/release/musicli.exe

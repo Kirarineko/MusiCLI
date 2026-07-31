@@ -77,6 +77,47 @@ export function registerSystemCommands() {
     }
   }, 'helpRemote');
 
+  register('llm', [], (args) => {
+    const c = ctx();
+    const sub = (args[0] || '').toLowerCase();
+    const s = getStoredSettings();
+
+    if (sub === 'url') {
+      if (!args[1]) { c.printLine(t('llmUsage'), 'info'); return; }
+      c.saveSettings({ llmBaseUrl: args[1] });
+      c.printLine(t('llmSet', { k: 'url', v: args[1] }), 'success');
+      return;
+    }
+    if (sub === 'key') {
+      if (!args[1]) { c.printLine(t('llmUsage'), 'info'); return; }
+      c.saveSettings({ llmApiKey: args[1] });
+      c.printLine(t('llmSet', { k: 'key', v: '****' }), 'success');
+      return;
+    }
+    if (sub === 'model') {
+      if (!args[1]) { c.printLine(t('llmUsage'), 'info'); return; }
+      c.saveSettings({ llmModel: args[1] });
+      c.printLine(t('llmSet', { k: 'model', v: args[1] }), 'success');
+      return;
+    }
+    if (sub === 'audio') {
+      const v = (args[1] || '').toLowerCase();
+      if (v !== 'on' && v !== 'off') { c.printLine(t('llmUsage'), 'info'); return; }
+      c.saveSettings({ llmAudio: v === 'on' });
+      c.printLine(t('llmSet', { k: 'audio', v }), 'success');
+      return;
+    }
+    // llm / llm status — show config (key masked)
+    const maskedKey = s.llmApiKey ? s.llmApiKey.slice(0, 4) + '****' : '-';
+    c.printKV(t('llmStatusTitle'), [
+      ['url', s.llmBaseUrl || '-'],
+      ['key', maskedKey],
+      ['model', s.llmModel || '-'],
+      ['audio', s.llmAudio ? 'on' : 'off'],
+    ]);
+    c.printRaw(t('llmUsage'));
+  }, 'helpLlm');
+
   register('listen', ['lt'], async (args) => {
     const c = ctx();
     const port = (window as unknown as Record<string, number>).__MUSICLI_PORT__;

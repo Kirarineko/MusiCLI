@@ -130,6 +130,22 @@ Single source of truth. Do not redefine it inline. Import from `'../../utils/gua
 
 `SettingsContext.tsx` imports it — no duplicate definition. `SHADOW_PRESETS` lives in `constants/themes.ts` and is re-exported via `SettingsContext.tsx`. `BUILTIN_THEMES` is defined in `configStore.ts` only.
 
+### Remote server / LLM HTTP must go through Rust
+
+The production CSP only allows `connect-src` to localhost. Any HTTP call to a **remote** MusiCLI server or an LLM API from the webview would be blocked in release builds (and LLM APIs typically reject browser CORS anyway). All such traffic goes through the gui-only Tauri commands in `src-tauri/src/remote_cmd.rs` (`remote_api_get`, `remote_download`, `llm_generate_tags`) using `reqwest` (optional dep, gated by the `gui` feature — the headless build must not link it). Do not add remote `fetch()` calls in the frontend.
+
+### LLM audio attachments are auto-transcoded
+
+`llm_generate_tags` attaches mp3/wav files as-is only when ≤ 6 MB (≈8 MB after base64 — providers commonly cap uploads around 8 MB). Larger files and other containers (flac/m4a/ogg…) are transcoded by `src-tauri/src/transcode.rs` (gui-gated: Symphonia decode → mono downmix → 64 kbps MP3 via `mp3lame-encoder`, capped at 600 s). Transcode failure degrades to text-only silently (stderr log only). `mp3lame-encoder` bundles LAME and needs a C compiler — it must stay behind the `gui` feature so the headless build keeps zero C-audio-codec linkage.
+
+### Tags are sidecar JSON keyed by basename
+
+Track tags live in `{music_folder}/config/tags.json`, keyed by the file **basename** (like `lrc/offsets.json`), not the full path — tags survive file moves and downloads from remote servers. Audio file metadata is never written. CRUD lives in `src-tauri/src/core/tags.rs`; the `/search?tag=` filter and `/tags` endpoints read the same file.
+
+### Remote downloads land inside the music folder
+
+`server play/get` downloads to `{music_folder}/remote/<serverName>/`, so cached remote tracks are ordinary library files (playable, discoverable by `find_lrc`, indexable by `/search`). Re-downloads are skipped when the local sha256 matches the server's `/files/hash` (server caches hashes in `config/hashes.json` by size+mtime).
+
 ### `connect-src` CSP is required for HTTP API
 
 The CSP in `tauri.conf.json` must explicitly allow `connect-src http://127.0.0.1:* http://localhost:*` (or whatever the HTTP API binds to). Without it, `fetch()` calls to the HTTP API are blocked in **production builds** (CSP is enforced by Tauri's asset protocol), even though `pnpm tauri dev` works fine (Vite dev server doesn't inject CSP headers). The `window.__MUSICLI_PORT__` injection via `window.eval()` from Rust's setup hook bypasses CSP, so the hybrid bridge will detect the port but then fail on every HTTP request.

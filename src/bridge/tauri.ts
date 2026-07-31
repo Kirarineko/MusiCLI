@@ -127,6 +127,23 @@ export const tauriBridge = {
     }
   },
 
+  // --- Tags ---
+  async getTrackTags(musicFolder: string, path: string): Promise<string[] | { error: string }> {
+    try {
+      return await invoke<string[]>('tags_get', { musicFolder, path });
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+  async setTrackTags(musicFolder: string, path: string, tags: string[]): Promise<{ success?: boolean; error?: string }> {
+    try {
+      await invoke('tags_set', { musicFolder, path, tags });
+      return { success: true };
+    } catch (e) {
+      return { error: String(e) };
+    }
+  },
+
   // --- Lyrics ---
   async findLrc(audioPath: string, rootDir: string): Promise<string | null | { error: string }> {
     try {

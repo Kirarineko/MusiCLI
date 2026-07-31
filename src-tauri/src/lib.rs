@@ -4,6 +4,10 @@ mod dialog_cmd;
 mod lyrics_cmd;
 #[cfg(feature = "gui")]
 mod window_cmd;
+#[cfg(feature = "gui")]
+mod remote_cmd;
+#[cfg(feature = "gui")]
+mod transcode;
 pub mod audio;
 pub mod core;
 #[cfg(feature = "gui")]
@@ -88,12 +92,19 @@ pub fn run_gui(state: Arc<Mutex<server_state::ServerState>>) {
             commands::find_lrc,
             commands::read_lrc_offsets,
             commands::write_lrc_offset,
+            commands::tags_get,
+            commands::tags_set,
+            commands::tags_all,
+            commands::file_sha256,
             commands::create_zip,
             commands::extract_zip,
             commands::remote_start,
             commands::remote_stop,
             commands::remote_status,
             commands::set_music_folder,
+            remote_cmd::remote_api_get,
+            remote_cmd::remote_download,
+            remote_cmd::llm_generate_tags,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

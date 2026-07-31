@@ -111,6 +111,14 @@ export function registerPlaylistCommands() {
       const allPls = c.listAllPlaylists().map(p => p.name);
       const notIn = allPls.filter(n => !inPls.includes(n));
       if (notIn.length > 0) c.printLine(t('trackNotInPlaylists') + ': ' + notIn.map(escapeHtml).join(', '), 'dim');
+      // Tags are user/LLM input flowing into SafeHtml — escape them too.
+      const mf = getStoredSettings().musicFolder || '';
+      if (mf) {
+        const tags = await getBridge().getTrackTags(mf, trackPath);
+        if (!hasError(tags) && tags.length > 0) {
+          c.printLine(t('trackTags') + ': ' + tags.map(escapeHtml).join(', '), 'info');
+        }
+      }
     };
 
     const resolveTarget = (target: string, onSingle: (fp: string) => void) => {
@@ -142,6 +150,120 @@ export function registerPlaylistCommands() {
           for (const s of selected) { if (s.path) showInfo(s.path); }
         });
       }
+      return;
+    }
+
+    // track tag — manage sidecar tags (add/rm/list/auto)
+    if (sub === 'tag') {
+      const mf = getStoredSettings().musicFolder || '';
+      if (!mf) { c.printLine(t('importNoFolder'), 'info'); return; }
+      const action = (rest[0] || '').toLowerCase();
+
+      const printTags = async (fp: string) => {
+        const tags = await getBridge().getTrackTags(mf, fp);
+        if (hasError(tags)) { c.printLine(escapeHtml(tags.error), 'error'); return; }
+        c.printLine(`${getFileName(fp)}: ` + (tags.length > 0 ? tags.map(escapeHtml).join(', ') : '-'), 'info');
+      };
+
+      // track tag add|rm <target> <tag...>
+      if (action === 'add' || action === 'rm' || action === 'remove') {
+        if (rest.length < 3) { c.printLine(t('trackTagUsage'), 'info'); return; }
+        const newTags = rest.slice(2);
+        resolveTarget(rest[1], (fp) => {
+          void (async () => {
+            const cur = await getBridge().getTrackTags(mf, fp);
+            if (hasError(cur)) { c.printLine(escapeHtml(cur.error), 'error'); return; }
+            let next: string[];
+            if (action === 'add') {
+              next = [...cur, ...newTags];
+            } else {
+              const rm = new Set(newTags.map(s => s.toLowerCase()));
+              next = cur.filter(tg => !rm.has(tg.toLowerCase()));
+            }
+            const r = await getBridge().setTrackTags(mf, fp, next);
+            if (hasError(r)) { c.printLine(escapeHtml(r.error!), 'error'); return; }
+            c.printLine(t('trackTagUpdated', { name: getFileName(fp) }), 'success');
+            await printTags(fp);
+          })();
+        });
+        return;
+      }
+
+      // track tag list [target] — all tagged tracks, or one track
+      if (action === 'list' || action === 'ls') {
+        if (rest.length > 1) { resolveTarget(rest[1], fp => void printTags(fp)); return; }
+        void (async () => {
+          let shown = 0;
+          for (const fp of pl) {
+            const tags = await getBridge().getTrackTags(mf, fp);
+            if (!hasError(tags) && tags.length > 0) {
+              c.printLine(`  ${getFileName(fp)}: ` + tags.map(escapeHtml).join(', '), 'info');
+              shown++;
+            }
+          }
+          if (shown === 0) c.printLine(t('trackTagNone'), 'info');
+        })();
+        return;
+      }
+
+      // track tag auto [target|all] — LLM auto-tagging
+      if (action === 'auto') {
+        const settings = getStoredSettings();
+        if (!settings.llmBaseUrl || !settings.llmModel) { c.printLine(t('llmNotConfigured'), 'info'); return; }
+        const autoTag = async (fp: string) => {
+          const name = getFileName(fp);
+          c.printLine(t('trackTagAutoStart', { name }), 'dim');
+          try {
+            const meta = await readMetadata(fp);
+            let lyrics = '';
+            const lrc = await getBridge().findLrc(fp, mf);
+            if (typeof lrc === 'string' && lrc) {
+              const content = await getBridge().readFile(lrc);
+              if (typeof content === 'string') lyrics = content;
+            }
+            const { invoke } = await import('@tauri-apps/api/core');
+            // Tag library: existing tags across the whole library, so the LLM
+            // reuses spellings instead of inventing plural/synonym variants.
+            const existingTags = await invoke<string[]>('tags_all', { musicFolder: mf }).catch(() => [] as string[]);
+            const tags = await invoke<string[]>('llm_generate_tags', {
+              baseUrl: settings.llmBaseUrl,
+              apiKey: settings.llmApiKey,
+              model: settings.llmModel,
+              title: meta?.title || name,
+              artist: meta?.artist || '',
+              lyrics,
+              audioPath: fp,
+              useAudio: !!settings.llmAudio,
+              existingTags,
+            });
+            if (tags.length === 0) { c.printLine(t('trackTagAutoEmpty', { name }), 'info'); return; }
+            const cur = await getBridge().getTrackTags(mf, fp);
+            const merged = [...(hasError(cur) ? [] : cur), ...tags];
+            const r = await getBridge().setTrackTags(mf, fp, merged);
+            if (hasError(r)) { c.printLine(escapeHtml(r.error!), 'error'); return; }
+            c.printLine(t('trackTagAutoDone', { name, tags: tags.map(escapeHtml).join(', ') }), 'success');
+          } catch (err) {
+            c.printLine(escapeHtml(String(err)), 'error');
+          }
+        };
+        const target = rest[1] || '';
+        if (target.toLowerCase() === 'all') {
+          void (async () => { for (const fp of pl) await autoTag(fp); })();
+          return;
+        }
+        if (target) { resolveTarget(target, fp => void autoTag(fp)); return; }
+        const items = buildTrackItems();
+        c.enterImode('track-select', items, (selected) => {
+          void (async () => {
+            for (const s of selected) { if (s.path) await autoTag(s.path); }
+          })();
+        });
+        return;
+      }
+
+      // track tag <n|name> — show tags for one track
+      if (rest.length > 0) { resolveTarget(rest[0], fp => void printTags(fp)); return; }
+      c.printLine(t('trackTagUsage'), 'info');
       return;
     }
 

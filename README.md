@@ -183,6 +183,9 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 | `pl delete <name>` | 删除歌单 |
 | `track info <n>` | 曲目信息 |
 | `track pl <n>` | 编辑曲目所属歌单 |
+| `track tag add|rm <n> <标签...>` | 手动增删歌曲标签 |
+| `track tag list [n]` | 查看标签 |
+| `track tag auto [n|all]` | LLM 自动打标（需先用 `llm` 命令配置） |
 
 
 #### 外观
@@ -217,6 +220,12 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 | `listen ui` | 选择自定义 HTML WebUI（放在 {music_folder}/Listen_WebUI） |
 | `share [n|歌名]` | 生成单曲直听链接并自动复制（[host] 占位符替换为自己的 IP/域名） |
 | `remote start|stop|status` | HTTP API 状态 |
+| `server add <名称> <地址> [token]` | 添加自建服务器 |
+| `server connect <名称>` | 连接服务器（`server list` 查看已保存） |
+| `server search <关键词> [--tag <标签>]` | 搜索服务器上的音乐 |
+| `server play <n>` | 下载并播放（已下载过则哈希比对后直接复用） |
+| `server get <n>` | 仅下载到 `{music_folder}/remote/<服务器名>/` |
+| `llm url|key|model|audio` | 配置自动打标 LLM（OpenAI 兼容 API；key 明文存 settings.json） |
 | `lang <en|zh|ja>` | 切换语言 |
 | `help` | 帮助 |
 | `clear` | 清屏 |
@@ -239,15 +248,17 @@ MusicLI_MyPlaylist_sync.zip
 
 ### Headless 模式
 
-无需 GUI 的纯 HTTP API 服务端，可部署在 NAS / VPS / 树莓派：
+无需 GUI 的纯 HTTP API 服务端，可部署在 NAS / VPS / 树莓派（Windows 也有 headless 产物 `musicli.exe`）：
 
 ```
-./musicli --remote --music_folder /path/to/music  
+./musicli --remote --music-folder /path/to/music --port 3000 --token secret
   
 # 局域网其他设备访问  
 curl http://<server-ip>:PORT/status  
 curl -X POST http://<server-ip>:PORT/next
 ```
+
+`--token` 可选：设置后所有 HTTP 请求需携带 `Authorization: Bearer <token>` 或 `?token=`。GUI 客户端用 `server add <名称> <http://ip:3000> <token>` + `server connect` 连接，即可搜索（`/search`）、流播、下载服务器上的音乐，类似 Minecraft 的服务端-客户端设计。
 
 ### 配置
 
@@ -301,7 +312,7 @@ cargo build --bin musicli --no-default-features --release
 
 ### HTTP API
 
-The HTTP server runs automatically in the background in both GUI and Headless modes. 28 endpoints with CORS support.
+The HTTP server runs automatically in the background in both GUI and Headless modes. 31 endpoints with CORS support and optional token auth (`--token`).
 
 ```
 # Check API port  
@@ -320,7 +331,9 @@ curl -X POST http://127.0.0.1:PORT/next
 
 - **Playlists**: `/playlist`, `/playlists`, `/playlists/single`, `/playlists/switch`, `/playlists/refresh`
 
-- **Files**: `/files`, `/metadata`, `/files/read`
+- **Files**: `/files`, `/metadata`, `/files/read`, `/files/hash`
+
+- **Search & Tags**: `/search`, `/tags`
 
 - **Lyrics**: `/lyrics`, `/lyrics/parse`, `/lyrics/offsets`
 
@@ -332,15 +345,17 @@ Full API docs: [API.md](file:///home/kirarineko/codes/MusiCLI/API.md).
 
 ### Headless Mode
 
-Deploy as a pure HTTP API server (no GUI/WebKit dependency):
+Deploy as a pure HTTP API server (no GUI/WebKit dependency, Windows headless binary also available):
 
 ```
-./musicli --remote --music_folder /path/to/music  
+./musicli --remote --music-folder /path/to/music --port 3000 --token secret
   
 # Access from other devices on LAN  
 curl http://<server-ip>:PORT/status  
 curl -X POST http://<server-ip>:PORT/next
 ```
+
+`--token` is optional; when set, every request must carry `Authorization: Bearer <token>` or `?token=`. From the GUI client, use `server add <name> <http://ip:3000> <token>` + `server connect` to search (`/search`), stream and download music from the server — Minecraft-style server/client.
 
 Type `help` in GUI for all commands. Type `lang en` for English UI.
 

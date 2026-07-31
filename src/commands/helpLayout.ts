@@ -34,6 +34,7 @@ export function printHelp(
   printRaw('    cd [name]             ' + t('helpCd'));
   printRaw('    pl create|list|delete|edit|info');
   printRaw('    track|t info|pl|del|move|copy [n]  ' + t('helpTrack'));
+  printRaw('    track tag add|rm|list|auto  ' + t('helpTrackTag'));
   printRaw('    import                ' + t('helpImport'));
   printLine('  ' + t('helpGroupAppearance'), 'dim');
   printRaw('    set vol <0-100>       ' + t('helpVol'));
@@ -45,6 +46,8 @@ export function printHelp(
   printRaw('    set maxlines <n>      ' + t('helpMaxlines'));
   printRaw('    sync theme save|load|list|delete|export|import  ' + t('helpSync'));
   printLine('  ' + t('helpGroupSystem'), 'dim');
+  printRaw('    server add|connect|search|play|get  ' + t('helpServer'));
+  printRaw('    llm url|key|model|audio  ' + t('helpLlm'));
   printRaw('    listen                ' + t('helpListen'));
   printRaw('    listen ui             ' + t('helpListenUi'));
   printRaw('    share [n|name]        ' + t('helpShare'));

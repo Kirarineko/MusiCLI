@@ -12,7 +12,7 @@
  * - All save functions write to BOTH file (async) and localStorage (sync)
  */
 
-import type { AppSettings, Theme, Playlist, Lang } from './types';
+import type { AppSettings, Theme, Playlist, Lang, RemoteServer } from './types';
 import { isBridgeAvailable, getBridge } from './bridge';
 import { hasError } from './utils/guards';
 
@@ -47,9 +47,10 @@ const LS_KEYS = {
   playlists: 'musiccli-playlists',
   currentPl: 'musiccli-current-pl',
   lang: 'musiccli-lang',
+  servers: 'musiccli-servers',
 } as const;
 
-type ConfigKey = 'settings' | 'themes' | 'playlists' | 'lang';
+type ConfigKey = 'settings' | 'themes' | 'playlists' | 'lang' | 'servers';
 
 // ── defaults ─────────────────────────────────────────────────────────
 
@@ -89,6 +90,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   seekStep: 5,
   seekPause: false,
   maxLines: 500,
+  llmBaseUrl: '',
+  llmApiKey: '',
+  llmModel: '',
+  llmAudio: false,
 };
 
 export const BUILTIN_THEMES: Theme[] = [
@@ -160,6 +165,8 @@ let _lang: Lang = (() => {
   return 'en';
 })();
 
+let _servers: RemoteServer[] = loadFromLs<RemoteServer[]>(LS_KEYS.servers, []);
+
 // Ensure currentPlName is valid
 if (!_currentPlName || !_playlists[_currentPlName]) {
   const first = Object.keys(_playlists)[0];
@@ -178,6 +185,7 @@ async function readConfigFile<T>(key: ConfigKey, fallback: T): Promise<T> {
     if (key === 'playlists') return fallback;
     const lsKey = key === 'settings' ? LS_KEYS.settings
                 : key === 'themes' ? LS_KEYS.themes
+                : key === 'servers' ? LS_KEYS.servers
                 : LS_KEYS.lang;
     return loadFromLs<T>(lsKey, fallback);
   }
@@ -189,6 +197,7 @@ async function readConfigFile<T>(key: ConfigKey, fallback: T): Promise<T> {
       if (key === 'playlists') return fallback;
       const lsKey = key === 'settings' ? LS_KEYS.settings
                   : key === 'themes' ? LS_KEYS.themes
+                  : key === 'servers' ? LS_KEYS.servers
                   : LS_KEYS.lang;
       return loadFromLs<T>(lsKey, fallback);
     }
@@ -212,6 +221,8 @@ async function writeConfigFile(key: ConfigKey, data: unknown): Promise<void> {
       localStorage.setItem(LS_KEYS.settings, JSON.stringify(data));
     } else if (key === 'themes') {
       localStorage.setItem(LS_KEYS.themes, JSON.stringify(data));
+    } else if (key === 'servers') {
+      localStorage.setItem(LS_KEYS.servers, JSON.stringify(data));
     } else if (key === 'lang') {
       localStorage.setItem(LS_KEYS.lang, String(data));
     }
@@ -249,6 +260,10 @@ export function getLang(): Lang {
   return _lang;
 }
 
+export function getServers(): RemoteServer[] {
+  return _servers;
+}
+
 // ── public init ──────────────────────────────────────────────────────
 
 /**
@@ -282,12 +297,13 @@ export async function initConfig(): Promise<AppSettings | null> {
 
   console.log('[configStore] loading config from', mf + '/config/');
 
-  // Load all 4 config files in parallel
-  const [settings, themes, playlists, lang] = await Promise.all([
+  // Load all 5 config files in parallel
+  const [settings, themes, playlists, lang, servers] = await Promise.all([
     readConfigFile<AppSettings>('settings', { ...DEFAULT_SETTINGS }),
     readConfigFile<Theme[]>('themes', JSON.parse(JSON.stringify(BUILTIN_THEMES))),
     readConfigFile<{ pls: Record<string, Playlist>; cur: string }>('playlists', defaultPlaylistsData()),
     readConfigFile<string>('lang', 'en'),
+    readConfigFile<RemoteServer[]>('servers', []),
   ]);
 
   // Update in-memory cache from file data
@@ -330,11 +346,16 @@ export async function initConfig(): Promise<AppSettings | null> {
     _lang = lang as Lang;
   }
 
+  if (Array.isArray(servers)) {
+    _servers = servers;
+  }
+
   // Sync file-loaded values back to localStorage cache (so module-load init is correct next time)
   try {
     localStorage.setItem(LS_KEYS.settings, JSON.stringify(_settings));
     localStorage.setItem(LS_KEYS.themes, JSON.stringify(_themes));
     localStorage.setItem(LS_KEYS.lang, _lang);
+    localStorage.setItem(LS_KEYS.servers, JSON.stringify(_servers));
   } catch { /* ignore */ }
 
   console.log('[configStore] config loaded from files');
@@ -389,4 +410,9 @@ export async function refreshPlaylists(): Promise<boolean> {
 export async function saveLang(lang: Lang): Promise<void> {
   _lang = lang;
   await writeConfigFile('lang', lang);
+}
+
+export async function saveServers(servers: RemoteServer[]): Promise<void> {
+  _servers = servers;
+  await writeConfigFile('servers', servers);
 }

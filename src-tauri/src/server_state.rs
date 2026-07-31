@@ -39,6 +39,9 @@ pub struct ServerState {
     pub progress_empty: char,
     // Status bar thread control
     pub status_running: AtomicBool,
+    /// Optional HTTP API token (set via `--token`). When Some and non-empty,
+    /// every HTTP request must carry it (Bearer header or `?token=`).
+    pub api_token: Option<String>,
 }
 
 impl Default for ServerState {
@@ -73,6 +76,7 @@ impl ServerState {
             progress_filled: '=',
             progress_empty: ' ',
             status_running: AtomicBool::new(false),
+            api_token: None,
         }
     }
 }

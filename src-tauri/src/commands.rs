@@ -55,6 +55,27 @@ pub fn find_lrc(audio_path: String, root_dir: String) -> Result<Option<String>, 
     core::lyrics::find_lrc(&audio_path, &root_dir)
 }
 
+// --- Tags ---
+#[tauri::command]
+pub fn tags_get(music_folder: String, path: String) -> Result<Vec<String>, String> {
+    core::tags::get_tags(&music_folder, &path)
+}
+
+#[tauri::command]
+pub fn tags_set(music_folder: String, path: String, tags: Vec<String>) -> Result<(), String> {
+    core::tags::set_tags(&music_folder, &path, &tags)
+}
+
+#[tauri::command]
+pub fn tags_all(music_folder: String) -> Result<Vec<String>, String> {
+    core::tags::all_tags(&music_folder)
+}
+
+#[tauri::command]
+pub fn file_sha256(path: String) -> Result<String, String> {
+    core::files::file_sha256(&path)
+}
+
 #[tauri::command]
 pub fn read_lrc_offsets(lrc_dir: String) -> Result<std::collections::HashMap<String, i64>, String> {
     core::lyrics::read_lrc_offsets(&lrc_dir)

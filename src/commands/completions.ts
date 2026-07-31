@@ -10,10 +10,18 @@ export const subCompletions: Record<string, string[]> = {
 
   set: ['vol', 'volume', 'color', 'colors', 'bg', 'background', 'blur', 'font', 'maxlines'],
 
-  track: ['info', 'pl', 'edit', 'delete', 'move', 'copy'],
-  t: ['info', 'pl', 'edit', 'delete', 'move', 'copy'],
+  track: ['info', 'pl', 'edit', 'delete', 'move', 'copy', 'tag'],
+  t: ['info', 'pl', 'edit', 'delete', 'move', 'copy', 'tag'],
   'track pl': ['delete', 'move', 'copy'],
   't pl': ['delete', 'move', 'copy'],
+  'track tag': ['add', 'rm', 'list', 'auto'],
+  't tag': ['add', 'rm', 'list', 'auto'],
+
+  server: ['add', 'list', 'rm', 'connect', 'disconnect', 'status', 'search', 'play', 'get', 'download'],
+  srv: ['add', 'list', 'rm', 'connect', 'disconnect', 'status', 'search', 'play', 'get', 'download'],
+
+  llm: ['url', 'key', 'model', 'audio', 'status'],
+  'llm audio': ['on', 'off'],
 
   lyric: ['t', 'terminal', 'term', 'inline', 'f', 'floating', 'float', 'desktop', 'off', 'hide', 'disable', 'accent', 'fg', 'next', 'gap', 'size', 'align', 'offset', 'v', 'vertical', 'lock', 'shadow'],
   lyrics: ['t', 'terminal', 'term', 'inline', 'f', 'floating', 'float', 'desktop', 'off', 'hide', 'disable', 'accent', 'fg', 'next', 'gap', 'size', 'align', 'offset', 'v', 'vertical', 'lock', 'shadow'],

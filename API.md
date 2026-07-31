@@ -2,6 +2,15 @@
 
 HTTP server starts with the application on `0.0.0.0` (LAN-accessible), port starts from 52013 and increments if occupied (52013 → 52014 → …). Check port with `echo $MUSICLI_HTTP_PORT` or `remote status` command in the GUI.
 
+## Authentication (optional)
+
+By default the API is open. When the server is started with `--token <TOKEN>` (typically the headless mode: `musicli --remote --port 3000 --token secret`), **every** endpoint requires the token via one of:
+
+- `Authorization: Bearer <TOKEN>` header
+- `?token=<TOKEN>` query parameter (useful for `/stream` and `/listen` URLs)
+
+Requests without a valid token get `401 Invalid or missing API token`.
+
 ## Playback
 
 ### GET /status
@@ -266,6 +275,55 @@ List audio files in directory (supports mp3/flac/wav/ogg/m4a/wma).
 
 ### GET /files/list
 Same as `/files` — lists audio files in directory.
+
+### GET /search
+Search the music library. Matches filename/title/artist/album (case-insensitive substring) and/or filters by sidecar tag. Uses a metadata index cached in `{music_folder}/config/search_index.json` (invalidated by size+mtime).
+
+**Query** `?q=<keyword>&tag=<tag>&limit=<n>` — all optional (at least one of `q`/`tag` recommended), `limit` defaults to 50 (max 500).
+
+**Response** `200`
+```json
+[
+  {
+    "path": "sub/Song.mp3",
+    "name": "Song.mp3",
+    "title": "Song Title",
+    "artist": "Artist",
+    "album": "Album",
+    "duration": 331.89,
+    "size": 8123456,
+    "tags": ["rock", "upbeat"]
+  }
+]
+```
+`path` is relative to the music folder — pass it directly to `/stream`, `/files/hash`, `/metadata`, `/lyrics` etc.
+
+### GET /files/hash
+SHA-256 of an audio file inside the music folder. Results are cached in `{music_folder}/config/hashes.json` keyed by filename with size+mtime validation. Clients use this to skip re-downloading unchanged files.
+
+**Query** `?path=<relative-or-absolute-path>`
+
+**Response** `200`
+```json
+{ "sha256": "9f86d0…", "size": 8123456 }
+```
+`403` — path outside music folder or not an audio file.
+
+### GET /tags
+Read sidecar tags (stored in `{music_folder}/config/tags.json`, keyed by file basename).
+
+**Query** `?path=<track>` — optional; omit to get the full map.
+
+**Response** `200` — with `path`: `{ "tags": ["rock"] }`; without: `{ "Song.mp3": ["rock"], … }`
+
+### POST /tags
+Replace the tag list for a track. An empty array removes the entry.
+
+**Request**
+```json
+{ "path": "Song.mp3", "tags": ["rock", "upbeat"] }
+```
+**Response** `200` — `{ "success": true }`
 
 ### GET /files/read
 Read an audio file as base64 string. Restricted to audio files **inside the configured music folder** — requests for paths outside it (or non-audio files) return `403`.

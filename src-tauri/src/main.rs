@@ -13,6 +13,10 @@ struct Cli {
     remote: bool,
     #[arg(long)]
     music_folder: Option<String>,
+    /// Optional API token — when set, all HTTP requests must carry it
+    /// (Authorization: Bearer <token> or ?token=<token>).
+    #[arg(long)]
+    token: Option<String>,
 }
 
 fn main() {
@@ -26,6 +30,7 @@ fn main() {
         musicli_lib::server_state::ServerState::new(),
     ));
     *state.lock().unwrap().music_folder.lock().unwrap() = music_folder;
+    state.lock().unwrap().api_token = cli.token.clone();
 
     let _ = musicli_lib::server_state::load_current_playlist(&state.lock().unwrap());
 
@@ -43,6 +48,9 @@ fn main() {
     }
 
     println!("HTTP API: http://{}:{}", cli.bind, port);
+    if cli.token.as_deref().map(|t| !t.is_empty()).unwrap_or(false) {
+        println!("API token required (--token) — clients must send Authorization: Bearer <token> or ?token=<token>");
+    }
     loop {
         std::thread::park();
     }

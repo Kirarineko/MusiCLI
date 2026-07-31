@@ -139,6 +139,7 @@ import { registerSyncCommands } from './sync';
 import { registerShareCommands } from './share';
 import { registerPlaylistCommands } from './playlist';
 import { registerPlaybackCommands } from './playback';
+import { registerServerCommands } from './server';
 
 export function registerAllCommands() {
   registerSystemCommands();
@@ -148,6 +149,7 @@ export function registerAllCommands() {
   registerShareCommands();
   registerPlaylistCommands();
   registerPlaybackCommands();
+  registerServerCommands();
 }
 
 // Register at module load time — survives Vite HMR

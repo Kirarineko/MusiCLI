@@ -39,6 +39,10 @@ export interface AppSettings {
   seekStep: number;
   seekPause: boolean;
   maxLines: number;
+  llmBaseUrl: string;
+  llmApiKey: string;
+  llmModel: string;
+  llmAudio: boolean;
 }
 
 export interface Theme {
@@ -65,6 +69,25 @@ export interface Playlist {
   updatedAt?: string;
   sharer?: string;
   tracks: string[];
+}
+
+/** A saved remote MusiCLI server (Minecraft-style server list entry). */
+export interface RemoteServer {
+  name: string;
+  url: string;
+  token?: string;
+}
+
+/** One hit returned by a remote server's /search endpoint. */
+export interface RemoteSearchHit {
+  path: string;
+  name: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number | null;
+  size: number;
+  tags: string[];
 }
 
 export interface SyncTrackMeta {

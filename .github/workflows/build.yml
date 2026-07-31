@@ -46,6 +46,28 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/msi/*.msi
 
+  windows-headless:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Build headless binary
+        run: cargo build --release --bin musicli --no-default-features
+        working-directory: src-tauri
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: musicli-headless-windows
+          path: src-tauri/target/release/musicli.exe
+
   linux:
     runs-on: ubuntu-latest
     steps:

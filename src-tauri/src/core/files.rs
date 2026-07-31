@@ -71,6 +71,78 @@ pub fn mkdir(path: &str) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|e| e.to_string())
 }
 
+// ── File hashing ────────────────────────────────────────────────────
+
+/// Streaming SHA-256 of a file (hex lowercase).
+pub fn file_sha256(path: &str) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read as _;
+    let file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct HashEntry {
+    sha256: String,
+    size: u64,
+    mtime: u64,
+}
+
+fn hashes_path(music_folder: &str) -> PathBuf {
+    config_path(music_folder).join("hashes.json")
+}
+
+fn file_stamp(path: &str) -> Result<(u64, u64), String> {
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Ok((meta.len(), mtime))
+}
+
+/// SHA-256 with a size+mtime-validated cache in {music_folder}/config/hashes.json,
+/// so large files are only hashed once. Returns (sha256, size).
+pub fn file_sha256_cached(music_folder: &str, path: &str) -> Result<(String, u64), String> {
+    let (size, mtime) = file_stamp(path)?;
+    let key = Path::new(path)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let cache_file = hashes_path(music_folder);
+    let mut cache: std::collections::BTreeMap<String, HashEntry> = fs::read_to_string(&cache_file)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default();
+    if let Some(e) = cache.get(&key) {
+        if e.size == size && e.mtime == mtime {
+            return Ok((e.sha256.clone(), size));
+        }
+    }
+    let sha = file_sha256(path)?;
+    cache.insert(key, HashEntry { sha256: sha.clone(), size, mtime });
+    if let Some(parent) = cache_file.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&cache) {
+        let _ = fs::write(&cache_file, json); // best-effort cache write
+    }
+    Ok((sha, size))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +156,27 @@ mod tests {
         assert!(!is_audio_file(Path::new("song.txt")));
         assert!(!is_audio_file(Path::new("song")));
         assert!(!is_audio_file(Path::new("song.jpg")));
+    }
+
+    #[test]
+    fn test_file_sha256_cached() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mf = dir.path().to_str().unwrap();
+        let file = dir.path().join("a.mp3");
+        fs::write(&file, b"hello").unwrap();
+        let p = file.to_str().unwrap();
+
+        let (h1, size) = file_sha256_cached(mf, p).unwrap();
+        assert_eq!(size, 5);
+        assert_eq!(h1, file_sha256(p).unwrap());
+        // Cached second call returns the same hash.
+        let (h2, _) = file_sha256_cached(mf, p).unwrap();
+        assert_eq!(h1, h2);
+        // Changing the content invalidates the cache (size changes).
+        fs::write(&file, b"hello world").unwrap();
+        let (h3, size3) = file_sha256_cached(mf, p).unwrap();
+        assert_eq!(size3, 11);
+        assert_ne!(h1, h3);
     }
 }
 

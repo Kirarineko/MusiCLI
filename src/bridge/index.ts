@@ -44,6 +44,9 @@ export interface IBridge {
   readConfig(musicFolder: string, key: string): Promise<unknown | null | { error: string }>;
   writeConfig(musicFolder: string, key: string, data: unknown): Promise<{ success?: boolean; error?: string }>;
 
+  getTrackTags(musicFolder: string, path: string): Promise<string[] | { error: string }>;
+  setTrackTags(musicFolder: string, path: string, tags: string[]): Promise<{ success?: boolean; error?: string }>;
+
   selectSyncFile(): Promise<string | null>;
   copyFile(src: string, dest: string): Promise<{ success?: boolean; error?: string }>;
   mkdir(dir: string): Promise<{ success?: boolean; error?: string }>;

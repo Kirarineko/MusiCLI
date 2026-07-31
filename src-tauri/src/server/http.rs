@@ -1,7 +1,8 @@
 use axum::{
     body::Body,
-    extract::{Query, State as AxumState},
+    extract::{Query, Request, State as AxumState},
     http::{header, HeaderMap, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
@@ -93,6 +94,9 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/playlists/refresh", post(refresh_playlist))
         .route("/metadata", get(metadata))
         .route("/files", get(list_files))
+        .route("/search", get(search_library))
+        .route("/files/hash", get(file_hash))
+        .route("/tags", get(get_tags_handler).post(set_tags_handler))
         .route("/devices", get(devices))
         .route("/audio-mode", get(get_audio_mode).post(set_audio_mode))
         .route("/config", get(get_config).put(put_config))
@@ -109,8 +113,48 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/folder", put(set_folder))
         .route("/listen", get(listen_webui_handler))
         .route("/listen/{*path}", get(listen_webui_handler))
-        .with_state(state)
+        .with_state(state.clone())
+        // Token check runs inside CORS so 401 responses still carry CORS headers.
+        .layer(middleware::from_fn_with_state(state, require_token))
         .layer(CorsLayer::permissive())
+}
+
+// ── Token auth ──────────────────────────────────────────────────────
+
+/// When `api_token` is configured (headless `--token`), every request must
+/// carry it via `Authorization: Bearer <token>` or a `?token=` query param.
+/// Without a configured token the middleware is a no-op (GUI local mode).
+async fn require_token(
+    AxumState(state): AxumState<SharedState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let token = { state.lock().unwrap().api_token.clone() };
+    let Some(token) = token.filter(|t| !t.is_empty()) else {
+        return next.run(req).await;
+    };
+
+    let header_ok = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| t == token)
+        .unwrap_or(false);
+    let query_ok = req
+        .uri()
+        .query()
+        .map(|q| {
+            q.split('&')
+                .any(|kv| kv.strip_prefix("token=").map(|v| v == token).unwrap_or(false))
+        })
+        .unwrap_or(false);
+
+    if header_ok || query_ok {
+        next.run(req).await
+    } else {
+        (StatusCode::UNAUTHORIZED, "Invalid or missing API token").into_response()
+    }
 }
 
 // ── Listen WebUI ─────────────────────────────────────────────────────
@@ -620,13 +664,22 @@ struct MetadataQuery {
 }
 
 async fn metadata(
+    state: AxumState<SharedState>,
     Query(q): Query<MetadataQuery>,
 ) -> Result<Json<crate::core::metadata::MetadataResult>, (StatusCode, String)> {
     // Restrict to audio files to prevent arbitrary file probing via HTTP.
     if !crate::core::files::is_audio_file(std::path::Path::new(&q.path)) {
         return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
     }
-    crate::core::metadata::read_metadata(&q.path)
+    // Relative paths (as returned by /search) resolve against music_folder.
+    let path = if Path::new(&q.path).is_absolute() {
+        q.path.clone()
+    } else {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        Path::new(&mf).join(&q.path).to_string_lossy().to_string()
+    };
+    crate::core::metadata::read_metadata(&path)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -642,6 +695,107 @@ async fn list_files(
     crate::core::files::list_audio_files(&q.dir)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+// ── Search ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    q: Option<String>,
+    tag: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn search_library(
+    state: AxumState<SharedState>,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<Vec<crate::core::search::SearchHit>>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    if mf.is_empty() {
+        return Err((StatusCode::FORBIDDEN, "music_folder not configured".into()));
+    }
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    // Index building reads metadata from disk — run on a blocking thread.
+    let hits = tokio::task::spawn_blocking(move || {
+        crate::core::search::search(&mf, q.q.as_deref(), q.tag.as_deref(), limit)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(hits))
+}
+
+// ── File hash ──────────────────────────────────────────────────────
+
+async fn file_hash(
+    state: AxumState<SharedState>,
+    Query(q): Query<PathQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let canon = validate_audio_in_folder(&q.path, &mf)?;
+    let canon_str = canon.to_string_lossy().to_string();
+    // Hashing a large file is CPU/IO heavy — keep it off the async runtime.
+    let (sha256, size) = tokio::task::spawn_blocking(move || {
+        crate::core::files::file_sha256_cached(&mf, &canon_str)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "sha256": sha256, "size": size })))
+}
+
+// ── Tags ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct TagsQuery {
+    path: Option<String>,
+}
+
+async fn get_tags_handler(
+    state: AxumState<SharedState>,
+    Query(q): Query<TagsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    match q.path {
+        Some(p) => crate::core::tags::get_tags(&mf, &p)
+            .map(|tags| Json(serde_json::json!({ "tags": tags })))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e)),
+        None => crate::core::tags::read_all_tags(&mf)
+            .map(|all| Json(serde_json::json!(all)))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetTagsRequest {
+    path: String,
+    tags: Vec<String>,
+}
+
+async fn set_tags_handler(
+    state: AxumState<SharedState>,
+    Json(req): Json<SetTagsRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    crate::core::tags::set_tags(&mf, &req.path, &req.tags)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn devices() -> Result<Json<Vec<String>>, (StatusCode, String)> {
@@ -870,7 +1024,15 @@ pub(crate) fn validate_audio_in_folder(path: &str, music_folder: &str) -> Result
     }
     let mf_canon = fs::canonicalize(music_folder)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("music_folder: {}", e)))?;
-    let canon = fs::canonicalize(path)
+    // Relative paths (as returned by /search) resolve against music_folder.
+    let joined;
+    let path_ref = if Path::new(path).is_absolute() {
+        path
+    } else {
+        joined = Path::new(music_folder).join(path).to_string_lossy().to_string();
+        joined.as_str()
+    };
+    let canon = fs::canonicalize(path_ref)
         .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found: {}", e)))?;
     if !canon.starts_with(&mf_canon) {
         return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));

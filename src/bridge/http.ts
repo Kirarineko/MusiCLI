@@ -81,6 +81,14 @@ export function createHttpBridge() {
     readConfig: (_musicFolder: string, key: string) => apiGet(`/config?key=${encodeURIComponent(key)}`),
     writeConfig: (_musicFolder: string, key: string, data: unknown) => apiPut(`/config?key=${encodeURIComponent(key)}`, data),
 
+    // Tags
+    getTrackTags: async (_musicFolder: string, path: string): Promise<string[] | { error: string }> => {
+      const r = await apiGet<{ tags: string[] }>(`/tags?path=${encodeURIComponent(path)}`);
+      if (typeof r === 'object' && r !== null && 'error' in r) return r as { error: string };
+      return (r as { tags: string[] }).tags;
+    },
+    setTrackTags: (_musicFolder: string, path: string, tags: string[]) => apiPost<SyncResult>('/tags', { path, tags }),
+
     // Lyrics — lrc_dir is derived server-side from music_folder/lrc,
     // so the lrcDir parameter is ignored in HTTP mode.
     findLrc: (mp3Path: string) => apiGet<string | null>(`/lyrics?audio_path=${encodeURIComponent(mp3Path)}`),
