@@ -70,9 +70,54 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
       if (s2.lyricsFloating) {
         await player.setLyricsFloating(true);
       }
+
+      // Register the global focus hotkey (best-effort; the focuskey command can retry).
+      const tauri = (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+      if (tauri) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const s3 = getStoredSettings();
+          await invoke('set_focus_shortcut', { accelerator: s3.focusKey || 'off' }).catch(() => {});
+        } catch { /* non-Tauri */ }
+      }
     }
 
     startup();
+  }, []);
+
+  // Global hotkey press → focus the command input (main window only).
+  // Direct focus() can be swallowed while the WebView2 keyboard focus is still
+  // settling after window activation, so simulate a click on the input — it
+  // bubbles to the window-level click handler in InputLine which focuses the
+  // input, and retry until the input actually holds focus.
+  useEffect(() => {
+    const tauri = (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    if (!tauri) return;
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    import('@tauri-apps/api/event').then(({ listen }) =>
+      listen('focus-input', () => {
+        const el = document.getElementById('cmd-input') as HTMLInputElement | null;
+        if (!el) return;
+        const simulate = () => {
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          el.focus();
+        };
+        simulate();
+        let attempts = 0;
+        const timer = setInterval(() => {
+          attempts++;
+          if (document.activeElement === el || attempts >= 8) {
+            clearInterval(timer);
+            return;
+          }
+          simulate();
+        }, 60);
+      })
+        .then(fn => { if (disposed) fn(); else unlisten = fn; })
+        .catch(() => {}),
+    );
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   // Force-sync lyrics settings after startup

@@ -124,7 +124,7 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 
 - **歌词**: `/lyrics`, `/lyrics/parse`, `/lyrics/offsets`
 
-- **配置/同步**: `/config`, `/folder`, `/sync/export`, `/sync/import`
+- **配置/同步**: `/config`, `/sync/export`, `/sync/import`
 
 详细文档见 [API.md](file:///home/kirarineko/codes/MusiCLI/API.md)。
 
@@ -228,6 +228,7 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 | `server get <n>` | 仅下载到 `{music_folder}/remote/<服务器名>/` |
 | `server autoadd on|off` | `server play` 是否把曲目加入默认歌单（默认开；`--add`/`--no-add` 按次覆盖） |
 | `llm url|key|model|audio` | 配置自动打标 LLM（OpenAI 兼容 API；key 明文存 settings.json） |
+| `focuskey <加速键>` | 全局快捷键一键聚焦输入框（默认 ctrl+f1；`focuskey off` 禁用） |
 | `lang <en|zh|ja>` | 切换语言 |
 | `help` | 帮助 |
 | `clear` | 清屏 |
@@ -339,7 +340,7 @@ curl -X POST http://127.0.0.1:PORT/next
 
 - **Lyrics**: `/lyrics`, `/lyrics/parse`, `/lyrics/offsets`
 
-- **Config**: `/config`, `/folder`, `/sync/export`, `/sync/import`
+- **Config**: `/config`, `/sync/export`, `/sync/import`
 
 - **Stream**: `/stream`, `/stream/info`, `/listen` (listen together page)
 

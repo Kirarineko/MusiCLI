@@ -55,4 +55,7 @@ export const subCompletions: Record<string, string[]> = {
 
   listen: ['ui', 'stop'],
   'listen ui': ['default', 'list'],
+
+  focuskey: ['off'],
+  fk: ['off'],
 };

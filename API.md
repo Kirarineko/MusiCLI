@@ -11,6 +11,11 @@ By default the API is open. When the server is started with `--token <TOKEN>` (t
 
 Requests without a valid token get `401 Invalid or missing API token`.
 
+## Access boundaries
+
+Playback-control endpoints (`/status*`, `/play`, `/pause`, `/stop`, `/next`, `/prev`, `/seek`, `/volume`, `/mode`, `/audio-mode`, `/play-mode`, `/devices`) are always open — any connected client may control playback.
+
+All other endpoints only operate on paths **inside the configured `music_folder`** (canonicalized and prefix-checked, `..` traversal rejected). Requests referencing paths outside the folder (or non-audio files where audio is required) return `403`. With no `music_folder` configured, these endpoints return `403 music_folder not configured`. The `PUT /folder` endpoint has been removed — the music folder is set by the GUI only.
 
 ## Playback
 
@@ -249,6 +254,8 @@ Add tracks to playlist (deduplicates).
 ### GET /metadata
 Read audio file metadata.
 
+**Security:** Only audio files **inside the configured `music_folder`** — paths outside it return `403`.
+
 **Query** `?path=/music/song.mp3`
 
 **Response** `200`
@@ -271,6 +278,8 @@ Fields may be `null` if unavailable.
 ### GET /files
 List audio files in directory (supports mp3/flac/wav/ogg/m4a/wma).
 
+**Security:** `dir` must be the configured `music_folder` or a subdirectory — anything else returns `403`.
+
 **Query** `?dir=/music/folder`
 
 **Response** `200`
@@ -279,7 +288,7 @@ List audio files in directory (supports mp3/flac/wav/ogg/m4a/wma).
 ```
 
 ### GET /files/list
-Same as `/files` — lists audio files in directory.
+Same as `/files` — lists audio files in directory. `dir` must be inside `music_folder`.
 
 ### GET /search
 Search the music library. Matches filename/title/artist/album (case-insensitive substring) and/or filters by sidecar tag. Uses a metadata index cached in `{music_folder}/config/search_index.json` (invalidated by size+mtime).
@@ -471,21 +480,12 @@ Write a config file.
 
 **Response** `200`
 
-### PUT /folder
-Set the music folder path used by config, lyrics, and playlist endpoints.
-
-**Request**
-```json
-{ "path": "/home/user/Music" }
-```
-**Response** `200`
-
-The path is persisted to `~/.config/musicli/music_folder` for subsequent starts.
-
 ## Lyrics
 
 ### GET /lyrics
 Search for LRC file matching an audio track.
+
+**Security:** `audio_path` must be an audio file inside `music_folder` — anything else returns `403`.
 
 **Query** `?audio_path=/music/song.mp3`
 
@@ -515,6 +515,8 @@ Set LRC offset for a track (0 = clear). `lrc_dir` is derived server-side from `{
 ### GET /lyrics/parse
 Search and parse LRC file, return time-stamped lines.
 
+**Security:** Both `audio_path` and `lrc_path` must resolve inside `music_folder` — arbitrary LRC reads outside it return `403`.
+
 **Query** `?audio_path=/music/song.mp3` or `?lrc_path=/music/lrc/song.lrc`
 
 **Response** `200`
@@ -530,9 +532,11 @@ Search and parse LRC file, return time-stamped lines.
 ### POST /sync/export
 Export playlists to a ZIP file.
 
+**Security:** `dest_zip` must resolve inside `music_folder` (the destination may not exist yet; `..` traversal is rejected).
+
 **Request**
 ```json
-{ "dest_zip": "/tmp/export.zip", "playlist_names": ["MyPlaylist"] }
+{ "dest_zip": "/music/export.zip", "playlist_names": ["MyPlaylist"] }
 ```
 Omit `playlist_names` or leave empty to export all playlists.
 
@@ -541,9 +545,11 @@ Omit `playlist_names` or leave empty to export all playlists.
 ### POST /sync/import
 Import playlists from a ZIP file (reads `playlists.json` inside).
 
+**Security:** `zip_path` must be inside `music_folder` — anything else returns `403`.
+
 **Request**
 ```json
-{ "zip_path": "/tmp/export.zip" }
+{ "zip_path": "/music/export.zip" }
 ```
 **Response** `200`
 ```json

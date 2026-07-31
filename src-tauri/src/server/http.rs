@@ -4,7 +4,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -110,7 +110,6 @@ pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
         .route("/stream/info", get(stream_info))
         .route("/sync/export", post(export_sync))
         .route("/sync/import", post(import_sync))
-        .route("/folder", put(set_folder))
         .route("/listen", get(listen_webui_handler))
         .route("/listen/{*path}", get(listen_webui_handler))
         .with_state(state.clone())
@@ -678,19 +677,16 @@ async fn metadata(
     state: AxumState<SharedState>,
     Query(q): Query<MetadataQuery>,
 ) -> Result<Json<crate::core::metadata::MetadataResult>, (StatusCode, String)> {
-    // Restrict to audio files to prevent arbitrary file probing via HTTP.
-    if !crate::core::files::is_audio_file(std::path::Path::new(&q.path)) {
-        return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
-    }
-    // Relative paths (as returned by /search) resolve against music_folder.
-    let path = if Path::new(&q.path).is_absolute() {
-        q.path.clone()
-    } else {
+    // Must be an audio file *inside* the configured music folder — the HTTP API
+    // is network-exposed, so an extension check alone would allow probing
+    // metadata of audio files anywhere on the machine.
+    let mf = {
         let s = state.lock().unwrap();
         let mf = s.music_folder.lock().unwrap().clone();
-        Path::new(&mf).join(&q.path).to_string_lossy().to_string()
+        mf
     };
-    crate::core::metadata::read_metadata(&path)
+    let canon = validate_audio_in_folder(&q.path, &mf)?;
+    crate::core::metadata::read_metadata(&canon.to_string_lossy())
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -701,9 +697,16 @@ struct FilesQuery {
 }
 
 async fn list_files(
+    state: AxumState<SharedState>,
     Query(q): Query<FilesQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
-    crate::core::files::list_audio_files(&q.dir)
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let dir = validate_dir_in_folder(&q.dir, &mf)?;
+    crate::core::files::list_audio_files(&dir.to_string_lossy())
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -881,8 +884,13 @@ async fn search_lyrics(
     state: AxumState<SharedState>,
     Query(q): Query<LyricsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let s = state.lock().unwrap();
-    let mf = s.music_folder.lock().unwrap().clone();
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    // Only look up lyrics for audio files inside the music folder.
+    validate_audio_in_folder(&q.audio_path, &mf)?;
     let result = crate::core::lyrics::find_lrc(&q.audio_path, &mf)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "lrc_path": result })))
@@ -931,11 +939,16 @@ async fn parse_lyrics(
     state: AxumState<SharedState>,
     Query(q): Query<LyricsParseQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let lrc_path = if let Some(p) = q.lrc_path {
-        p
-    } else if let Some(audio_path) = q.audio_path {
+    let mf = {
         let s = state.lock().unwrap();
         let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let lrc_path = if let Some(p) = q.lrc_path {
+        // Arbitrary LRC reads must stay inside the music folder.
+        validate_in_folder(&p, &mf)?.to_string_lossy().to_string()
+    } else if let Some(audio_path) = q.audio_path {
+        validate_audio_in_folder(&audio_path, &mf)?;
         crate::core::lyrics::find_lrc(&audio_path, &mf)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
             .ok_or_else(|| (StatusCode::NOT_FOUND, "No LRC file found".into()))?
@@ -957,17 +970,31 @@ struct DirQuery {
 }
 
 async fn list_dir_files(
+    state: AxumState<SharedState>,
     Query(q): Query<DirQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
-    crate::core::files::list_audio_files(&q.dir)
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let dir = validate_dir_in_folder(&q.dir, &mf)?;
+    crate::core::files::list_audio_files(&dir.to_string_lossy())
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 async fn list_html_files_handler(
+    state: AxumState<SharedState>,
     Query(q): Query<DirQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
-    crate::core::files::list_html_files(&q.dir)
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let dir = validate_dir_in_folder(&q.dir, &mf)?;
+    crate::core::files::list_html_files(&dir.to_string_lossy())
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -1029,29 +1056,84 @@ fn audio_content_type(path: &Path) -> &'static str {
     }
 }
 
-pub(crate) fn validate_audio_in_folder(path: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
+/// Validate that an arbitrary path resolves inside `music_folder` (or, for
+/// not-yet-existing destinations like sync exports, that its nearest existing
+/// ancestor does). Relative paths resolve against the folder. `..` components
+/// in the non-existent tail are rejected outright — the OS would resolve them
+/// after create_dir_all and escape the folder.
+pub(crate) fn validate_in_folder(path: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
     if music_folder.is_empty() {
         return Err((StatusCode::FORBIDDEN, "music_folder not configured".into()));
     }
     let mf_canon = fs::canonicalize(music_folder)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("music_folder: {}", e)))?;
+
     // Relative paths (as returned by /search) resolve against music_folder.
     let joined;
-    let path_ref = if Path::new(path).is_absolute() {
-        path
+    // Windows: strip the verbatim `\\?\` prefix — such paths are not
+    // recognized as absolute by Path::is_absolute() and would be joined onto
+    // music_folder instead of being treated as an absolute path.
+    let stripped = path.trim_start_matches(r"\\?\");
+    let path_ref = if Path::new(stripped).is_absolute() {
+        stripped
     } else {
-        joined = Path::new(music_folder).join(path).to_string_lossy().to_string();
+        joined = Path::new(music_folder).join(stripped).to_string_lossy().to_string();
         joined.as_str()
     };
-    let canon = fs::canonicalize(path_ref)
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found: {}", e)))?;
-    if !canon.starts_with(&mf_canon) {
+
+    // Canonicalize the nearest existing ancestor, then re-append the remaining
+    // components so non-existent paths (export destinations) are checked too.
+    let mut p = PathBuf::from(path_ref);
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let canon = loop {
+        match fs::canonicalize(&p) {
+            Ok(c) => break c,
+            Err(_) => match p.file_name().map(|n| n.to_os_string()) {
+                Some(name) => {
+                    tail.push(name);
+                    if !p.pop() {
+                        return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));
+                    }
+                }
+                None => return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into())),
+            },
+        }
+    };
+    let mut resolved = canon;
+    for c in tail.iter().rev() {
+        if c == ".." {
+            return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));
+        }
+        resolved.push(c);
+    }
+    if !resolved.starts_with(&mf_canon) {
         return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));
     }
-    if !crate::core::files::is_audio_file(&canon) {
+    Ok(resolved)
+}
+
+/// Validate that `dir` exists and is `music_folder` itself or a subdirectory.
+pub(crate) fn validate_dir_in_folder(dir: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
+    let resolved = validate_in_folder(dir, music_folder)?;
+    if !resolved.is_dir() {
+        return Err((StatusCode::FORBIDDEN, "Not a directory".into()));
+    }
+    Ok(resolved)
+}
+
+/// Validate that `path` is an existing audio file inside `music_folder`.
+pub(crate) fn validate_audio_in_folder(path: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
+    let resolved = validate_in_folder(path, music_folder)?;
+    if !resolved.exists() {
+        return Err((StatusCode::NOT_FOUND, format!("File not found: {}", resolved.display())));
+    }
+    if !resolved.is_file() {
+        return Err((StatusCode::FORBIDDEN, "Not a regular file".into()));
+    }
+    if !crate::core::files::is_audio_file(&resolved) {
         return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
     }
-    Ok(canon)
+    Ok(resolved)
 }
 
 /// Parse a `Range: bytes=...` header into (start, end_inclusive). `end` is
@@ -1214,23 +1296,13 @@ async fn export_sync(
     state: AxumState<SharedState>,
     Json(req): Json<SyncExportRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // Validate destination path: reject obvious system paths and require it
-    // live under the user's home or music folder.
-    let home = dirs::home_dir().map(|h| h.to_path_buf());
+    // Destination must be inside the music folder. The check canonicalizes
+    // through the nearest existing ancestor so non-existent paths can't smuggle
+    // `..` components past the prefix test.
     let s = state.lock().unwrap();
     let mf = s.music_folder.lock().unwrap().clone();
     drop(s);
-
-    let dest = Path::new(&req.dest_zip);
-    let dest_canon = fs::canonicalize(dest).unwrap_or_else(|_| dest.to_path_buf());
-    let is_safe = match (&home, mf.is_empty()) {
-        (Some(h), true) => dest_canon.starts_with(h),
-        (Some(h), false) => dest_canon.starts_with(h) || dest_canon.starts_with(&mf),
-        (None, _) => true, // can't determine home — allow but log
-    };
-    if !is_safe {
-        return Err((StatusCode::FORBIDDEN, "Export destination outside allowed directories".into()));
-    }
+    let dest_zip = validate_in_folder(&req.dest_zip, &mf)?.to_string_lossy().to_string();
 
     // Build a lightweight export: read playlists, filter if needed, write JSON, zip it
     use crate::core::playlist::{get_playlist, list_playlists};
@@ -1258,11 +1330,11 @@ async fn export_sync(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Write playlists.json into a ZIP
-    if let Some(parent) = Path::new(&req.dest_zip).parent() {
+    if let Some(parent) = Path::new(&dest_zip).parent() {
         fs::create_dir_all(parent)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
-    let zip_file = fs::File::create(&req.dest_zip)
+    let zip_file = fs::File::create(&dest_zip)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut zip = zip::ZipWriter::new(zip_file);
     let opts = zip::write::SimpleFileOptions::default()
@@ -1290,7 +1362,9 @@ async fn import_sync(
     let mf = s.music_folder.lock().unwrap().clone();
     drop(s);
 
-    let zip_file = fs::File::open(&req.zip_path)
+    // The ZIP must be inside the music folder.
+    let zip_path = validate_in_folder(&req.zip_path, &mf)?.to_string_lossy().to_string();
+    let zip_file = fs::File::open(&zip_path)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Cannot open ZIP: {}", e)))?;
     let mut archive = zip::ZipArchive::new(zip_file)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ZIP: {}", e)))?;
@@ -1507,23 +1581,5 @@ async fn refresh_playlist(
 }
 
 // ── Folder ───────────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct FolderRequest {
-    path: String,
-}
-
-async fn set_folder(
-    state: AxumState<SharedState>,
-    Json(req): Json<FolderRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    // Create the directory if it doesn't exist
-    if let Err(e) = std::fs::create_dir_all(&req.path) {
-        return Err((StatusCode::BAD_REQUEST, format!("Cannot create directory: {}", e)));
-    }
-    let s = state.lock().unwrap();
-    *s.music_folder.lock().unwrap() = req.path.clone();
-    crate::core::files::persist_music_folder(&req.path);
-    let _ = crate::server_state::load_current_playlist(&s);
-    Ok(StatusCode::OK)
-}
+// Removed: /folder let any LAN client repoint music_folder and persist it.
+// GUI sets the music folder via the set_music_folder Tauri command instead.

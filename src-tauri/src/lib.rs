@@ -1,6 +1,8 @@
 #[cfg(feature = "gui")]
 mod dialog_cmd;
 #[cfg(feature = "gui")]
+mod focus_cmd;
+#[cfg(feature = "gui")]
 mod lyrics_cmd;
 #[cfg(feature = "gui")]
 mod window_cmd;
@@ -20,11 +22,55 @@ pub mod server_state;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "gui")]
 use tauri::Manager;
+#[cfg(feature = "gui")]
+use tauri::Emitter;
 
 #[cfg(feature = "gui")]
 pub fn run_gui(state: Arc<Mutex<server_state::ServerState>>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(
+                    |app: &tauri::AppHandle,
+                     _shortcut: &tauri_plugin_global_shortcut::Shortcut,
+                     event: tauri_plugin_global_shortcut::ShortcutEvent| {
+                        use tauri_plugin_global_shortcut::ShortcutState;
+                    if event.state() == ShortcutState::Pressed {
+                        // Bring the main window forward, then ask the webview to
+                        // focus the command input.
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                        // WebView2 refuses programmatic DOM focus right after
+                        // activation — only a real (system-queued) click
+                        // establishes keyboard focus. Send one into the window
+                        // (any click focuses the input via the frontend's
+                        // window-level click handler) after the activation
+                        // settles, then re-emit focus-input as a fallback.
+                        let app = app.clone();
+                        let _ = std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(120));
+                            #[cfg(target_os = "windows")]
+                            if let Some(window) = app.get_webview_window("main") {
+                                if let (Ok(pos), Ok(size)) =
+                                    (window.outer_position(), window.outer_size())
+                                {
+                                    crate::focus_cmd::simulate_click(
+                                        pos.x + size.width as i32 / 2,
+                                        pos.y + size.height as i32 - 24,
+                                    );
+                                }
+                            }
+                            let _ = app.emit("focus-input", ());
+                        });
+                    }
+                    },
+                )
+                .build(),
+        )
         .manage(state)
         .setup(|app| {
             // Inject the HTTP server port into the frontend so the hybrid
@@ -59,6 +105,7 @@ pub fn run_gui(state: Arc<Mutex<server_state::ServerState>>) {
             dialog_cmd::open_theme_dialog,
             dialog_cmd::save_dir_dialog,
             dialog_cmd::open_sync_dialog,
+            focus_cmd::set_focus_shortcut,
             lyrics_cmd::show_lyrics_window,
             lyrics_cmd::hide_lyrics_window,
             lyrics_cmd::send_lyrics_update,

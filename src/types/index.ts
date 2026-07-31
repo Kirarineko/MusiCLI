@@ -44,6 +44,7 @@ export interface AppSettings {
   llmModel: string;
   llmAudio: boolean;
   serverAutoAdd: boolean;
+  focusKey: string;
 }
 
 export interface Theme {

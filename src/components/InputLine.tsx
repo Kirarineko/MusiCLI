@@ -132,11 +132,16 @@ export function InputLine() {
     setCommandContext(buildCtx());
   }, [buildCtx]);
 
-  // Auto-focus input on click anywhere
+  // Auto-focus input whenever the window gains focus (global hotkey, Alt+Tab,
+  // taskbar click) or on any click — all operations happen in this input.
   useEffect(() => {
     const handler = () => inputRef.current?.focus();
+    window.addEventListener('focus', handler);
     window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
+    return () => {
+      window.removeEventListener('focus', handler);
+      window.removeEventListener('click', handler);
+    };
   }, []);
 
   // When entering imode, clear input so user can type filter immediately

@@ -95,6 +95,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   llmModel: '',
   llmAudio: false,
   serverAutoAdd: true,
+  focusKey: 'ctrl+f1',
 };
 
 export const BUILTIN_THEMES: Theme[] = [

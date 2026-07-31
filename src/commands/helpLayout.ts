@@ -51,6 +51,7 @@ export function printHelp(
   printRaw('    listen                ' + t('helpListen'));
   printRaw('    listen ui             ' + t('helpListenUi'));
   printRaw('    share [n|name]        ' + t('helpShare'));
+  printRaw('    focuskey <accel>      ' + t('helpFocuskey'));
   printRaw('    lang <en|zh|ja>       ' + t('helpLang'));
   printRaw('    reset                 ' + t('helpReset'));
   printRaw('    clear                 ' + t('helpClear'));

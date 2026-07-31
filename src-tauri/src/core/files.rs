@@ -16,8 +16,18 @@ pub fn list_audio_files(dir: &str) -> Result<Vec<String>, String> {
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file() && is_audio_file(e.path()))
-        .map(|e| e.path().to_string_lossy().to_string())
+        .map(|e| normalize_path(e.path()))
         .collect())
+}
+
+/// Windows: strip the `\\?\` verbatim prefix that `std::fs::read_dir` /
+/// WalkDir may produce. Verbatim paths are NOT recognized as absolute by
+/// `Path::is_absolute()`, which breaks canonicalization and music-folder
+/// prefix checks in the HTTP layer.
+fn normalize_path(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    s.to_string()
 }
 
 pub fn list_html_files(dir: &str) -> Result<Vec<String>, String> {

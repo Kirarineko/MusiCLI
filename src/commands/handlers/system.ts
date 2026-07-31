@@ -118,6 +118,34 @@ export function registerSystemCommands() {
     c.printRaw(t('llmUsage'));
   }, 'helpLlm');
 
+  register('focuskey', ['fk'], async (args) => {
+    const c = ctx();
+    const tauri = typeof window !== 'undefined' && !!(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    if (!tauri) { c.printLine(t('focusKeyTauriOnly'), 'error'); return; }
+
+    const accel = (args[0] || '').toLowerCase();
+    if (!accel) {
+      const v = getStoredSettings().focusKey || 'off';
+      c.printLine(t('focusKeyCurrent', { v }), 'info');
+      return;
+    }
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const result = await invoke<string>('set_focus_shortcut', {
+        accelerator: accel === 'off' ? 'off' : args.join(' '),
+      });
+      if (result === 'disabled') {
+        await c.saveSettings({ focusKey: '' });
+        c.printLine(t('focusKeyDisabled'), 'success');
+      } else {
+        await c.saveSettings({ focusKey: result });
+        c.printLine(t('focusKeySet', { v: result }), 'success');
+      }
+    } catch (err) {
+      c.printLine(t('focusKeyFailed', { e: String(err) }), 'error');
+    }
+  }, 'helpFocuskey');
+
   register('listen', ['lt'], async (args) => {
     const c = ctx();
     const port = (window as unknown as Record<string, number>).__MUSICLI_PORT__;
