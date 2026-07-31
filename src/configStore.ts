@@ -94,6 +94,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   llmApiKey: '',
   llmModel: '',
   llmAudio: false,
+  serverAutoAdd: true,
 };
 
 export const BUILTIN_THEMES: Theme[] = [

@@ -13,6 +13,8 @@ interface PlaylistContextValue {
   switchPlaylist: (name: string) => Playlist | { candidates: string[] } | null;
   addTracksToCurrent: (tracks: string[]) => void;
   replaceCurrentTracks: (tracks: string[]) => void;
+  addTracksToPlaylist: (name: string, tracks: string[]) => void;
+  defaultPlaylistName: () => string;
   editPlaylist: (name: string, field: string, value: string) => { success: boolean; error?: string };
   getCurrentPlaylist: () => Playlist | null;
   getCurrentPlName: () => string;
@@ -156,6 +158,22 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     persist(pls, currentPlName);
   }, [playlists, currentPlName, persist]);
 
+  const addTracksToPlaylist = useCallback((name: string, tracks: string[]) => {
+    const pls = { ...playlists };
+    let pl = pls[name];
+    if (!pl) {
+      const now = new Date().toISOString();
+      pl = { name, desc: '', createdAt: now, tracks: [] };
+      pls[name] = pl;
+    }
+    for (const tr of tracks) {
+      if (!pl.tracks.includes(tr)) pl.tracks.push(tr);
+    }
+    persist(pls, currentPlName);
+  }, [playlists, currentPlName, persist]);
+
+  const getDefaultPlName = useCallback((): string => t('defaultPlName') || 'Default', []);
+
   const editPlaylist = useCallback((name: string, field: string, value: string) => {
     const pls = { ...playlists };
     const pl = pls[name];
@@ -218,13 +236,15 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
     getPlaylistTracks,
     createPlaylist, createPlaylistWithTracks, deletePlaylist, switchPlaylist,
     addTracksToCurrent, replaceCurrentTracks,
+    addTracksToPlaylist, defaultPlaylistName: getDefaultPlName,
     editPlaylist, getCurrentPlaylist, getCurrentPlName,
     listAllPlaylists, getPlaylistData,
     getPlaylistsForTrack, syncTrackToPlaylists,
     savePlaylists: savePlaylistsFn, ensureDefault, reloadFromStore,
   }), [playlists, currentPlName, getPlaylistTracks,
        createPlaylist, createPlaylistWithTracks, deletePlaylist, switchPlaylist,
-       addTracksToCurrent, replaceCurrentTracks, editPlaylist,
+       addTracksToCurrent, replaceCurrentTracks, addTracksToPlaylist, getDefaultPlName,
+       editPlaylist,
        getCurrentPlaylist, getCurrentPlName, listAllPlaylists, getPlaylistData,
        getPlaylistsForTrack, syncTrackToPlaylists, savePlaylistsFn,
        ensureDefault, reloadFromStore]);

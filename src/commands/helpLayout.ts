@@ -46,7 +46,7 @@ export function printHelp(
   printRaw('    set maxlines <n>      ' + t('helpMaxlines'));
   printRaw('    sync theme save|load|list|delete|export|import  ' + t('helpSync'));
   printLine('  ' + t('helpGroupSystem'), 'dim');
-  printRaw('    server add|connect|search|play|get  ' + t('helpServer'));
+  printRaw('    server add|connect|search|play|get|autoadd  ' + t('helpServer'));
   printRaw('    llm url|key|model|audio  ' + t('helpLlm'));
   printRaw('    listen                ' + t('helpListen'));
   printRaw('    listen ui             ' + t('helpListenUi'));

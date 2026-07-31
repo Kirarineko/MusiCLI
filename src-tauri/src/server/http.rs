@@ -339,23 +339,34 @@ async fn play(
     let (engine_arc, path, idx, prev_idx, pm) = {
         let s = state.lock().unwrap();
         let playlist = s.playlist.lock().unwrap().clone();
-        if playlist.is_empty() {
-            return Err((StatusCode::NOT_FOUND, "Playlist is empty".into()));
-        }
-        let idx = if let Some(i) = req.index {
+        let prev_idx = *s.current_index.lock().unwrap();
+        // Resolve target: index → playlist[i]; path → playlist match or play
+        // the path directly (out-of-list, e.g. a downloaded remote track);
+        // neither → current_index (clamped).
+        let (path, idx): (String, Option<usize>) = if let Some(i) = req.index {
+            if playlist.is_empty() {
+                return Err((StatusCode::NOT_FOUND, "Playlist is empty".into()));
+            }
             if i >= playlist.len() {
                 return Err((StatusCode::BAD_REQUEST, "Index out of range".into()));
             }
-            i
-        } else if let Some(ref path) = req.path {
-            playlist.iter().position(|p| p == path).unwrap_or(0)
+            (playlist[i].clone(), Some(i))
+        } else if let Some(ref p) = req.path {
+            match playlist.iter().position(|x| x == p) {
+                Some(i) => (playlist[i].clone(), Some(i)),
+                // Path not in playlist: play it directly, leave index untouched.
+                None => (p.clone(), None),
+            }
         } else {
-            // Clamp: current_index may be stale if the playlist shrank.
-            s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1)
+            if playlist.is_empty() {
+                return Err((StatusCode::NOT_FOUND, "Playlist is empty".into()));
+            }
+            let i = s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1);
+            (playlist[i].clone(), Some(i))
         };
-        let path = playlist[idx].clone();
-        let prev_idx = *s.current_index.lock().unwrap();
-        *s.current_index.lock().unwrap() = Some(idx);
+        if let Some(i) = idx {
+            *s.current_index.lock().unwrap() = Some(i);
+        }
         let pm = s.play_mode.lock().unwrap().clone();
         (s.audio_engine.clone(), path, idx, prev_idx, pm)
     };
@@ -390,7 +401,7 @@ async fn play(
         volume: vol,
         mode,
         play_mode: pm,
-        current_index: Some(idx),
+        current_index: idx,
         playlist_len: plen,
         current_track: Some(path),
     }))

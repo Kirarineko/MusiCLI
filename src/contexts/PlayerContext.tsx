@@ -22,6 +22,7 @@ interface PlayerContextValue {
   toggle: () => void;
   stop: () => void;
   playIndex: (idx: number) => string | undefined;
+  playPath: (fp: string) => Promise<string>;
   next: () => string | undefined;
   prev: () => string | undefined;
   seek: (secs: number) => void;
@@ -197,6 +198,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return fp;
   }, [playlist, playTrackAsync]);
 
+  const playPath = useCallback(async (fp: string): Promise<string> => {
+    await playTrackAsync(fp);
+    setCurrentIndex(-1);
+    return fp;
+  }, [playTrackAsync]);
+
   const addToPlaylist = useCallback((paths: string[]) => {
     setPlaylist(prev => {
       const toAdd = paths.filter(p => !prev.includes(p));
@@ -321,6 +328,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         // Check if track ended (position >= duration and duration > 0)
         if (dur > 0 && pos >= dur - 0.1) {
+          // Out-of-playlist playback (e.g. `server play --no-add`): stop, don't auto-advance.
+          if (currentIndex < 0) {
+            setIsPlaying(false);
+            autoNextGuardRef.current = false;
+            return;
+          }
           if (autoNextGuardRef.current) return;
           autoNextGuardRef.current = true;
           // Track ended — handle play mode and capture the NEW index.
@@ -618,7 +631,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     currentIndex,
     getPlaylist,
     addToPlaylist, clearPlaylist,
-    play, pause, toggle, stop, playIndex, next, prev, seek,
+    play, pause, toggle, stop, playIndex, playPath, next, prev, seek,
     setVolume, getVolume, getCurrentTime, getDuration,
     isPlaying,
     playMode, setPlayMode, cyclePlayMode,
@@ -632,7 +645,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     progressWidth: s.progressWidth,
     registerLyricPrinter,
   }), [playlist, currentIndex, getPlaylist, addToPlaylist, clearPlaylist,
-      play, pause, toggle, stop, playIndex, next, prev, seek,
+      play, pause, toggle, stop, playIndex, playPath, next, prev, seek,
       setVolume, getVolume, getCurrentTime, getDuration,
       isPlaying, playMode, setPlayMode, cyclePlayMode,
       duration, volume, lyricsLines, lyricsTerminal, lyricsFloating,

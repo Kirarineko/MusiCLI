@@ -27,6 +27,7 @@ export interface CommandContext {
   pause: () => void;
   stop: () => void;
   playIndex: (idx: number) => string | undefined;
+  playPath: (fp: string) => Promise<string>;
   next: () => string | undefined;
   prev: () => string | undefined;
   seek: (secs: number) => void;
@@ -50,6 +51,8 @@ export interface CommandContext {
   // Playlists
   replaceCurrentTracks: (tracks: string[]) => void;
   addTracksToCurrent: (tracks: string[]) => void;
+  addTracksToPlaylist: (name: string, tracks: string[]) => void;
+  defaultPlaylistName: () => string;
   getCurrentPlName: () => string;
   switchPlaylist: (name: string) => unknown;
   getPlaylistsForTrack: (path: string) => string[];

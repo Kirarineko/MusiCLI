@@ -43,6 +43,7 @@ export interface AppSettings {
   llmApiKey: string;
   llmModel: string;
   llmAudio: boolean;
+  serverAutoAdd: boolean;
 }
 
 export interface Theme {

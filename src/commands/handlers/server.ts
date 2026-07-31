@@ -223,6 +223,21 @@ export function registerServerCommands() {
       return;
     }
 
+    // --- server autoadd on|off (no connection needed) ---
+    if (sub === 'autoadd' || sub === 'aa') {
+      const arg = (rest[0] || '').toLowerCase();
+      if (arg === 'on' || arg === 'true' || arg === '1') {
+        c.saveSettings({ serverAutoAdd: true });
+        c.printLine(t('serverAutoAddOn'), 'success');
+      } else if (arg === 'off' || arg === 'false' || arg === '0') {
+        c.saveSettings({ serverAutoAdd: false });
+        c.printLine(t('serverAutoAddOff'), 'success');
+      } else {
+        c.printLine(t('serverAutoAddUsage', { v: getStoredSettings().serverAutoAdd ? 'on' : 'off' }), 'info');
+      }
+      return;
+    }
+
     // Everything below needs an active connection.
     if (!activeServer) { c.printLine(t('serverNotConnected'), 'info'); return; }
 
@@ -248,25 +263,25 @@ export function registerServerCommands() {
       return;
     }
 
-    // --- server play <n> ---
+    // --- server play <n> [--add|--no-add] ---
     if (sub === 'play' || sub === 'p') {
-      const hit = pickResult(rest[0] || '');
+      let autoAdd = getStoredSettings().serverAutoAdd;
+      const positional: string[] = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === '--add') { autoAdd = true; continue; }
+        if (a === '--no-add' || a === '--noadd') { autoAdd = false; continue; }
+        positional.push(a);
+      }
+      const hit = pickResult(positional[0] || '');
       if (!hit) return;
       try {
         const dest = await ensureDownloaded(activeServer, hit);
-        c.addToPlaylist([dest]);
-        // c.playlist is a pre-add snapshot — defer so the player state updates.
-        setTimeout(async () => {
-          const c2 = ctx();
-          const idx = c2.playlist.indexOf(dest);
-          if (idx >= 0) {
-            const fp = c2.playIndex(idx);
-            if (fp) {
-              const meta = await readMetadata(fp);
-              if (meta) { printNowPlaying(meta); await c2.loadLRC(fp); }
-            }
-          }
-        }, 0);
+        if (autoAdd) c.addTracksToPlaylist(c.defaultPlaylistName(), [dest]);
+        await c.playPath(dest);
+        const meta = await readMetadata(dest);
+        if (meta) { printNowPlaying(meta); await c.loadLRC(dest); }
+        c.printLine(t('playing'), 'success');
       } catch (err) {
         c.printLine(escapeHtml(String(err)), 'error');
       }

@@ -17,8 +17,12 @@ export const subCompletions: Record<string, string[]> = {
   'track tag': ['add', 'rm', 'list', 'auto'],
   't tag': ['add', 'rm', 'list', 'auto'],
 
-  server: ['add', 'list', 'rm', 'connect', 'disconnect', 'status', 'search', 'play', 'get', 'download'],
-  srv: ['add', 'list', 'rm', 'connect', 'disconnect', 'status', 'search', 'play', 'get', 'download'],
+  server: ['add', 'list', 'rm', 'connect', 'disconnect', 'status', 'search', 'play', 'get', 'download', 'autoadd', 'aa'],
+  srv: ['add', 'list', 'rm', 'connect', 'disconnect', 'status', 'search', 'play', 'get', 'download', 'autoadd', 'aa'],
+  'server autoadd': ['on', 'off'],
+  'server aa': ['on', 'off'],
+  'srv autoadd': ['on', 'off'],
+  'srv aa': ['on', 'off'],
 
   llm: ['url', 'key', 'model', 'audio', 'status'],
   'llm audio': ['on', 'off'],

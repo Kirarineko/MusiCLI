@@ -44,6 +44,10 @@ Get current track duration in seconds.
 ### POST /play
 Play a track by path, index, or resume current.
 
+- `index` — play playlist[i], update current_index.
+- `path` — if in the playlist, play it and update current_index; if **not** in the playlist, play the path directly (out-of-list playback, e.g. a freshly downloaded remote track) and leave current_index unchanged.
+- neither — resume the current track (clamped to playlist bounds).
+
 **Request**
 ```json
 { "path": "/music/song.mp3" }

@@ -77,6 +77,7 @@ export function InputLine() {
     pause: player.pause,
     stop: player.stop,
     playIndex: player.playIndex,
+    playPath: player.playPath,
     next: player.next,
     prev: player.prev,
     seek: player.seek,
@@ -100,6 +101,8 @@ export function InputLine() {
 
     replaceCurrentTracks: playlists.replaceCurrentTracks,
     addTracksToCurrent: playlists.addTracksToCurrent,
+    addTracksToPlaylist: playlists.addTracksToPlaylist,
+    defaultPlaylistName: playlists.defaultPlaylistName,
     getCurrentPlName: playlists.getCurrentPlName,
     switchPlaylist: playlists.switchPlaylist,
     getPlaylistsForTrack: playlists.getPlaylistsForTrack,
