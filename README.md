@@ -9,35 +9,21 @@
 
 ### 简介
 
-MusicLI 是一款**拟终端命令行风格**的桌面音乐播放器，使用 Tauri v2 + Rust + React + TypeScript 构建。音频引擎基于 Symphonia 解码 + cpal 输出，支持 WASAPI（共享/默认）和 ASIO（独占）模式。支持 MP3/FLAC/WAV/OGG/M4A 等格式、ID3 元数据解析、LRC 歌词显示（终端内嵌 + 透明悬浮桌面歌词）、主题系统和歌单分享。
+MusicLI 是一款**纯终端交互式本地音乐播放器与音频流服务端（v4.0）**，使用 Rust 编写。音频引擎基于 Symphonia 解码 + cpal 输出，支持 WASAPI（共享/默认）和 ASIO（独占）模式。支持 MP3/FLAC/WAV/OGG/M4A 等格式、ID3 元数据解析与歌单管理。
 
-**v3.3 新增：28 个端点的 HTTP REST API、Headless 无 GUI 服务端。**
+**v4.0 特性：零 GUI 依赖的纯终端 REPL 交互、内嵌 28+ 端点 HTTP REST API、独立 LocalPlay (`lp`) 浏览器拉起内置 Sakura WebUI、一起听 (`/listen`) 与移动端 Pocket 随行播放器 (`/pocket`)。**
 
 ### 特性
 
-- **命令行风格界面** — 键入命令控制一切，方向键历史
-
+- **终端 REPL 交互** — 键盘直接控制播放与歌单管理，方向键历史记录
 - **Rust 音频引擎** — Symphonia 解码 → rubato 重采样 → cpal 输出，支持 WASAPI/ASIO
-
+- **HTTP REST API** — 28 个端点，播放控制、歌单 CRUD、文件浏览、元数据、实时推流（支持 CORS）
+- **LocalPlay (LP) 专属功能** — 键入 `lp` 自动在默认浏览器中打开专属内置 Sakura 樱花 WebUI（`/lp`）
+- **多端 WebUI 生态** — 保留 `/listen`（一起听实时推流）与 `/pocket`（移动端随行 PWA）
 - **多种播放模式** — 顺序 / 单曲循环 / 列表循环 / 随机
-
-- **HTTP REST API** — 28 个端点，播放控制、歌单 CRUD、文件浏览、元数据、歌词、配置、同步（支持 CORS）
-
-- **Headless 模式** — 零 GUI 依赖的纯二进制（`musicli --remote`），可部署为服务端
-
-- **LRC 歌词** — 终端内嵌 + 透明悬浮桌面歌词，竖排/横排、颜色/大小/阴影/对齐全可配
-
-- **子目录歌词检索** — 递归搜索音乐文件夹和 MP3 父目录
-
-- **歌词时序偏移** — 每首歌独立调整 LRC 偏移，自动保存
-
 - **歌单管理** — 创建/编辑/切换歌单，批量导入，模糊搜索
-
 - **元数据展示** — ID3 标签，显示专辑、年份、码率等
-
-- **主题系统** — 内置暗色 / Claude Desktop 主题，支持导入导出
-
-- **外观定制** — 自定义字体、背景图片、模糊度、进度条、窗口圆角
+- **轻量纯粹** — 移除 GUI 与 WebKit 依赖，秒级编译与极低资源开销
 
 - **三语言** — 简体中文 / English / 日本語
 
@@ -72,30 +58,18 @@ echo $MUSICLI_HTTP_PORT         # 查看端口号
 
 **前置要求**
 
-- [Rust 工具链](https://rustup.rs/)
+- [Rust 工具链](https://rustup.rs/) (Cargo & rustc)
+- Linux 系统依赖（可选）：`sudo apt-get install -y libasound2-dev`
 
-- [LLVM/Clang](https://github.com/llvm/llvm-project/releases) — ASIO SDK 编译需要（Windows）
-
-- [Node.js](https://nodejs.org/) 22+
-
-- [pnpm](https://pnpm.io/)
-
-```
+```bash
 git clone https://github.com/Kirarineko/MusicLI.git  
 cd MusicLI  
-pnpm install  
-  
-# 开发模式（仅前端，无原生 IPC）  
-pnpm dev  
-  
-# 完整 Tauri 开发（启动 Vite + Tauri 窗口）  
-pnpm tauri dev  
-  
-# 生产构建  
-pnpm tauri build  
-  
-# Headless 二进制（无 GUI 依赖）  
-cargo build --bin musicli --no-default-features --release
+
+# 交互式运行
+cargo run
+
+# 构建发布版本（二进制生成在 target/release/musicli）
+cargo build --release
 ```
 
 ### HTTP API
@@ -125,6 +99,7 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 - **歌词**: `/lyrics`, `/lyrics/parse`, `/lyrics/offsets`
 
 - **配置/同步**: `/config`, `/sync/export`, `/sync/import`
+- **音频流**: `/stream`, `/stream/info`, `/listen`（一起听）, `/pocket`（Pocket 播放器 PWA）
 
 详细文档见 [API.md](file:///home/kirarineko/codes/MusiCLI/API.md)。
 
@@ -139,89 +114,51 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 | `import` | 导入至歌单（搜索 + 多选） |
 
 
-#### 播放
+#### 播放控制
 
 | 命令 | 说明 |
 | - | - |
-| `play [n|name]` | 播放 / 恢复（模糊搜索） |
+| `play [n|name]` | 播放 / 恢复（支持序号或模糊搜索） |
 | `pause` / `stop` | 暂停 / 停止 |
 | `next` / `prev` | 下一首 / 上一首 |
-| `mode` | 循环模式 |
-| `vol <0-100>` | 音量 |
-| `seek [sec]` | 跳转；无参数进入方向键模式 |
-| `bar` | 进度条 |
-| `audio mode [normal|asio]` | 音频输出模式 |
-| `audio devices` | 列出音频设备 |
+| `mode` | 切换循环模式（normal / repeat-one / repeat-all / shuffle） |
+| `vol [0-100]` | 音量调节或查看当前音量 |
+| `seek <sec>` | 跳转至指定播放秒数 |
+| `bar` | 进度条显示及样式调节（`bar width <n>` / `bar char <f> <e>`） |
+| `audio [normal|asio]` | 切换音频输出模式（WASAPI / ASIO） |
+| `devices` | 列出硬件音频输出设备 |
 
-
-#### 歌词
-
-| 命令 | 说明 |
-| - | - |
-| `lyric t` | 切换终端歌词 |
-| `lyric f` | 切换悬浮歌词 |
-| `lyric off` | 关闭全部 |
-| `lyric accent|fg <#hex>` | 当前行/后续行颜色 |
-| `lyric next <0-10>` | 后续行数 |
-| `lyric gap <px>` | 行间距 |
-| `lyric shadow <off|s|m|l>` | 文字阴影 |
-| `lyric align <l|c|r>` | 对齐 |
-| `lyric v` | 竖排模式 |
-| `lyric size current|next <px>` | 字体大小 |
-| `lyric lock` | 鼠标穿透 |
-| `lyric offset <ms>` | LRC 时序偏移 |
-
-
-#### 歌单
+#### 曲库与歌单
 
 | 命令 | 说明 |
 | - | - |
-| `cd [name]` | 切换歌单 |
-| `pl create <name>` | 创建歌单 |
-| `pl list` | 列出歌单 |
-| `pl info` | 歌单详情 |
-| `pl edit <name> <field> <value>` | 编辑歌单 |
+| `open <dir|file>` | 加载音乐文件夹或播放单曲音频文件 |
+| `import` | 从音乐文件夹交互式选择曲目导入当前歌单 |
+| `list [page]` | 分页浏览当前歌单内曲目 |
+| `info` | 查看当前播放曲目 ID3/元数据详情 |
+| `cd <name>` | 切换当前歌单 |
+| `pl create <name> [desc]` | 创建新歌单 |
+| `pl list` | 查看所有歌单 |
+| `pl info [name]` | 查看指定歌单曲目明细 |
+| `pl switch <name>` | 切换至目标歌单 |
 | `pl delete <name>` | 删除歌单 |
-| `track info <n>` | 曲目信息 |
-| `track pl <n>` | 编辑曲目所属歌单 |
-| `track tag add|rm <n> <标签...>` | 手动增删歌曲标签 |
-| `track tag list [n]` | 查看标签 |
-| `track tag auto [n|all]` | LLM 自动打标（需先用 `llm` 命令配置） |
+| `t [info|delete] [n]` | 曲目信息查看或从歌单中移除 |
 
-
-#### 外观
+#### 系统管理
 
 | 命令 | 说明 |
 | - | - |
-| `color <type> <#hex>` | 设置颜色 |
-| `colors` | 显示颜色 |
-| `set bg [clear]` | 背景图 |
-| `set blur <0-50>` | 模糊度 |
-| `set font size|weight|import` | 字体 |
-| `set maxlines <n>` | 终端最大行数 |
-| `theme list|save|load|delete|export|import` | 主题管理 |
-| `reset` | 恢复默认 |
+| `status` | 查看服务端口、播放状态、当前曲目及各个 WebUI 访问链接 |
+| `clear` / `cls` | 清屏 |
+| `help` | 显示完整命令帮助手册 |
+| `quit` / `exit` / `q` | 退出播放器程序 |
 
-
-#### 分享
+#### 附属功能 (Extras)
 
 | 命令 | 说明 |
 | - | - |
-| `sync pl export [name]` | 导出歌单（ZIP：音频文件 + LRC + 元数据） |
-| `sync pl import` | 导入歌单 |
-| `sync theme export [name]` | 导出主题 |
-| `sync theme import` | 导入主题 |
+| `lp` / `localplay` | **LocalPlay**：自动唤起系统默认浏览器，打开专属内置 Sakura 樱花 WebUI（端点 `/lp`） |
 
-
-#### 系统
-
-| 命令 | 说明 |
-| - | - |
-| `listen` | 开启一起听，分享链接 |
-| `listen ui` | 选择自定义 HTML WebUI（放在 {music_folder}/Listen_WebUI） |
-| `share [n|歌名]` | 生成单曲直听链接并自动复制（[host] 占位符替换为自己的 IP/域名） |
-| `remote start|stop|status` | HTTP API 状态 |
-| `server add <名称> <地址> [token]` | 添加自建服务器 |
 | `server connect <名称>` | 连接服务器（`server list` 查看已保存） |
 | `server search <关键词> [--tag <标签>]` | 搜索服务器上的音乐 |
 | `server play <n> [--add|--no-add]` | 下载并播放（已下载过则哈希比对后直接复用；`--add`/`--no-add` 按次覆盖 autoadd） |
@@ -342,7 +279,7 @@ curl -X POST http://127.0.0.1:PORT/next
 
 - **Config**: `/config`, `/sync/export`, `/sync/import`
 
-- **Stream**: `/stream`, `/stream/info`, `/listen` (listen together page)
+- **Stream**: `/stream`, `/stream/info`, `/listen` (listen together page), `/pocket` (Pocket player PWA)
 
 Full API docs: [API.md](file:///home/kirarineko/codes/MusiCLI/API.md).
 

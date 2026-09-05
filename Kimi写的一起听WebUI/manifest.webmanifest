@@ -1,0 +1,16 @@
+{
+  "name": "MusiCLI 随行播放器",
+  "short_name": "MusiCLI",
+  "description": "MusiCLI 暗色极简移动端播放器 WebUI",
+  "start_url": "/listen/?source=pwa",
+  "scope": "/listen/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#09090c",
+  "theme_color": "#09090c",
+  "icons": [
+    { "src": "/listen/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/listen/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/listen/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

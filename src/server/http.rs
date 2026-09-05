@@ -1,0 +1,1869 @@
+use axum::{
+    body::Body,
+    extract::{Form, Query, Request, State as AxumState},
+    http::{header, HeaderMap, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
+use tower_http::cors::CorsLayer;
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::io::ReaderStream;
+
+use crate::audio::AudioMode;
+use crate::lrc_parser;
+use crate::server_state::ServerState as SState;
+
+type SharedState = Arc<Mutex<SState>>;
+
+/// Starting port for the HTTP server. If occupied, increments until a free
+/// port is found (52013 → 52014 → 52015 → …).
+pub const START_PORT: u16 = 52013;
+const MAX_PORT_ATTEMPTS: u16 = 100;
+
+pub fn start_in_background(state: Arc<Mutex<SState>>, bind: &str, port: u16) -> u16 {
+    // If the caller passes 0, use the default starting port.
+    let start_port = if port == 0 { START_PORT } else { port };
+
+    // Try ports sequentially until we find a free one.
+    // We bind a probe socket to test availability, then drop it and rebind
+    // inside the tokio runtime (from_std causes Linux socket errors).
+    let actual_port = {
+        let mut found: Option<u16> = None;
+        for p in start_port..start_port.saturating_add(MAX_PORT_ATTEMPTS) {
+            match TcpListener::bind(format!("{}:{}", bind, p)) {
+                Ok(listener) => {
+                    found = Some(listener.local_addr().unwrap().port());
+                    drop(listener);
+                    break;
+                }
+                Err(_) => continue,
+            }
+        }
+        found.unwrap_or_else(|| panic!(
+            "Failed to bind HTTP server: no free port in range {}-{}",
+            start_port,
+            start_port.saturating_add(MAX_PORT_ATTEMPTS - 1),
+        ))
+    };
+
+    // Log the connection info so external tools can auto-discover the server.
+    eprintln!("[server] HTTP API listening on http://{}:{}", bind, actual_port);
+
+    let bind_addr = bind.to_string();
+    let s = state.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+        rt.block_on(async {
+            let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind_addr, actual_port))
+                .await
+                .expect("Failed to bind HTTP server");
+            axum::serve(listener, build_router(s)).await.expect("HTTP server error");
+        });
+    });
+
+    actual_port
+}
+
+pub fn build_router(state: Arc<Mutex<SState>>) -> Router {
+    Router::new()
+        .route("/status", get(status))
+        .route("/status/position", get(status_position))
+        .route("/status/duration", get(status_duration))
+        .route("/play", post(play))
+        .route("/pause", post(pause))
+        .route("/stop", post(stop))
+        .route("/next", post(next_track))
+        .route("/prev", post(prev_track))
+        .route("/seek", post(seek))
+        .route("/volume", post(volume))
+        .route("/mode", post(mode))
+        .route("/play-mode", get(get_play_mode).post(set_play_mode))
+        .route("/playlist", get(get_playlist).post(add_playlist))
+        .route("/playlists", get(list_playlists).post(create_playlist))
+        .route("/playlists/single", get(get_playlist_single).delete(delete_playlist_single).put(update_playlist_single))
+        .route("/playlists/switch", post(switch_playlist))
+        .route("/playlists/refresh", post(refresh_playlist))
+        .route("/metadata", get(metadata))
+        .route("/files", get(list_files))
+        .route("/search", get(search_library))
+        .route("/files/hash", get(file_hash))
+        .route("/tags", get(get_tags_handler).post(set_tags_handler))
+        .route("/devices", get(devices))
+        .route("/audio-mode", get(get_audio_mode).post(set_audio_mode))
+        .route("/config", get(get_config).put(put_config))
+        .route("/lyrics", get(search_lyrics))
+        .route("/lyrics/offsets", get(get_lyrics_offsets).post(set_lyrics_offset))
+        .route("/lyrics/parse", get(parse_lyrics))
+        .route("/files/list", get(list_dir_files))
+        .route("/files/list-html", get(list_html_files_handler))
+        .route("/files/read", get(read_file_base64))
+        .route("/stream", get(stream))
+        .route("/stream/info", get(stream_info))
+        .route("/sync/export", post(export_sync))
+        .route("/sync/import", post(import_sync))
+        .route("/listen", get(listen_webui_handler))
+        .route("/listen/{*path}", get(listen_webui_handler))
+        .route("/pocket", get(pocket_webui_handler))
+        .route("/pocket/", get(pocket_webui_handler))
+        // Login endpoint — must stay reachable while unauthenticated.
+        .route("/pocket/auth", post(pocket_auth))
+        .route("/pocket/{*path}", get(pocket_webui_handler))
+        // Dedicated LocalPlay (LP) WebUI endpoint
+        .route("/lp", get(lp_webui_handler))
+        .route("/lp/", get(lp_webui_handler))
+        .route("/lp/{*path}", get(lp_webui_handler))
+        .with_state(state.clone())
+        // Token check runs inside CORS so 401 responses still carry CORS headers.
+        .layer(middleware::from_fn_with_state(state, require_token))
+        .layer(CorsLayer::permissive())
+}
+
+// ── Token auth ──────────────────────────────────────────────────────
+
+/// When `api_token` is configured (headless `--token`), every request must
+/// carry it via `Authorization: Bearer <token>` or a `?token=` query param.
+/// Without a configured token the middleware is a no-op (GUI local mode).
+async fn require_token(
+    AxumState(state): AxumState<SharedState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let token = { state.lock().unwrap().api_token.clone() };
+    let Some(token) = token.filter(|t| !t.is_empty()) else {
+        return next.run(req).await;
+    };
+
+    let header_ok = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| t == token)
+        .unwrap_or(false);
+    let query_ok = req
+        .uri()
+        .query()
+        .map(|q| {
+            q.split('&')
+                .any(|kv| kv.strip_prefix("token=").map(|v| v == token).unwrap_or(false))
+        })
+        .unwrap_or(false);
+
+    if header_ok || query_ok {
+        next.run(req).await
+    } else {
+        (StatusCode::UNAUTHORIZED, "Invalid or missing API token").into_response()
+    }
+}
+
+// ── Listen WebUI ─────────────────────────────────────────────────────
+
+// Embed built-in assets at compile time so they work regardless of CWD.
+// Cargo tracks include_str! dependencies — editing the files triggers recompilation.
+const DEFAULT_INDEX_HTML: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/index.html"));
+const MUSICLI_JS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/musicli.js"));
+
+async fn listen_webui_handler(
+    state: AxumState<SharedState>,
+    uri: axum::http::Uri,
+) -> Response {
+    let music_folder = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let sub_path = uri.path().strip_prefix("/listen").unwrap_or("").trim_start_matches('/');
+
+    // Prevent path traversal
+    if sub_path.contains("..") || sub_path.starts_with('/') {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    // Try custom webui from Listen_WebUI/
+    if !music_folder.is_empty() {
+        if let Ok(Some(val)) = crate::core::files::read_config(&music_folder, "listen-webui") {
+            if let Some(filename) = val.as_str() {
+                if !filename.is_empty() {
+                    let webui_dir = std::path::Path::new(&music_folder).join("Listen_WebUI");
+                    let file_path = if sub_path.is_empty() {
+                        webui_dir.join(filename)
+                    } else {
+                        webui_dir.join(sub_path)
+                    };
+                    // Inject MUSICLI_JS into root HTML via placeholder
+                    if sub_path.is_empty() {
+                        if let Some(resp) = serve_html_inject(&file_path, &webui_dir, MUSICLI_JS) {
+                            return resp;
+                        }
+                    } else if let Some(resp) = serve_file_if_safe(&file_path, &webui_dir) {
+                        return resp;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to embedded default
+    if sub_path == "musicli.js" || sub_path.is_empty() {
+        let body: Body = if sub_path.is_empty() {
+            let html = match DEFAULT_INDEX_HTML.split_once("<!--MUSICLI_JS-->") {
+                Some((before, after)) => {
+                    format!("{}<script>\n{}\n</script>{}", before, MUSICLI_JS, after)
+                }
+                None => DEFAULT_INDEX_HTML.to_string(),
+            };
+            Body::from(html)
+        } else {
+            Body::from(MUSICLI_JS)
+        };
+        let content_type = if sub_path.is_empty() {
+            "text/html; charset=utf-8"
+        } else {
+            "application/javascript; charset=utf-8"
+        };
+        return Response::builder()
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(body)
+            .unwrap();
+    }
+
+    (StatusCode::NOT_FOUND, "Not found").into_response()
+}
+
+// ── LocalPlay (LP) WebUI ─────────────────────────────────────────────
+const SAKURA_HTML: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sakura.html"));
+
+async fn lp_webui_handler(
+    AxumState(state): AxumState<SharedState>,
+    uri: axum::http::Uri,
+) -> Response {
+    let music_folder = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let sub_path = uri
+        .path()
+        .strip_prefix("/lp")
+        .unwrap_or("")
+        .trim_start_matches('/');
+
+    // Prevent path traversal
+    if sub_path.contains("..") || sub_path.starts_with('/') {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    if sub_path.is_empty() || sub_path == "index.html" {
+        return Response::builder()
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(Body::from(SAKURA_HTML))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+
+    if !music_folder.is_empty() {
+        let webui_dir = std::path::Path::new(&music_folder).join("Listen_WebUI");
+        let file_path = webui_dir.join(sub_path);
+        if let Some(resp) = serve_file_if_safe(&file_path, &webui_dir) {
+            return resp;
+        }
+    }
+
+    StatusCode::NOT_FOUND.into_response()
+}
+
+
+fn serve_file_if_safe(path: &std::path::Path, base: &std::path::Path) -> Option<Response> {
+    let base_canon = base.canonicalize().ok()?;
+    let path_canon = path.canonicalize().ok()?;
+    if !path_canon.starts_with(&base_canon) {
+        return None;
+    }
+    let content = std::fs::read(&path_canon).ok()?;
+    let mime = mime_for_path(&path_canon);
+    Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .body(Body::from(content))
+        .ok()
+}
+
+/// Read an HTML file, inject the JS at the placeholder, and return a Response.
+/// Falls back to serving the file as-is if placeholder is not found.
+fn serve_html_inject(path: &std::path::Path, base: &std::path::Path, js: &str) -> Option<Response> {
+    let base_canon = base.canonicalize().ok()?;
+    let path_canon = path.canonicalize().ok()?;
+    if !path_canon.starts_with(&base_canon) {
+        return None;
+    }
+    let raw = std::fs::read_to_string(&path_canon).ok()?;
+    let html = match raw.split_once("<!--MUSICLI_JS-->") {
+        Some((before, after)) => format!("{}<script>\n{}\n</script>{}", before, js, after),
+        None => raw,
+    };
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(Body::from(html))
+        .ok()
+}
+
+fn mime_for_path(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("html" | "htm") => "text/html; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "application/javascript",
+        Some("json" | "webmanifest") => "application/json",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        Some("webp") => "image/webp",
+        Some("ico") => "image/x-icon",
+        Some("woff") => "font/woff",
+        Some("woff2") => "font/woff2",
+        Some("ttf") => "font/ttf",
+        Some("otf") => "font/otf",
+        _ => "application/octet-stream",
+    }
+}
+
+// ── Pocket Player WebUI ─────────────────────────────────────────────
+
+// Embedded default UI ("MusiCLI Pocket") — a mobile-first PWA served from
+// /pocket. Cargo tracks include_* dependencies, so edits trigger a rebuild.
+const POCKET_HTML: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/pocket.html"));
+const POCKET_MANIFEST: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/pocket-manifest.webmanifest"));
+const POCKET_SW: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/pocket-sw.js"));
+const POCKET_ICON_180: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/pocket-icon-180.png"));
+const POCKET_ICON_192: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/pocket-icon-192.png"));
+const POCKET_ICON_512: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/pocket-icon-512.png"));
+
+/// Cookie carrying the SHA-256 of the pocket password. Storing the digest
+/// rather than the password itself keeps the raw value out of the browser jar.
+const POCKET_COOKIE: &str = "pocket_auth";
+
+fn sha256_hex(input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn pocket_cookie_value(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    let prefix = format!("{}=", POCKET_COOKIE);
+    for part in raw.split(';') {
+        if let Some(v) = part.trim().strip_prefix(&prefix) {
+            return Some(v.trim().to_string());
+        }
+    }
+    None
+}
+
+/// True when the request carries a valid pocket cookie. With no password
+/// configured, every request is allowed.
+fn pocket_authorized(headers: &HeaderMap, password: &Option<String>) -> bool {
+    let Some(pw) = password.as_ref().filter(|p| !p.is_empty()) else {
+        return true;
+    };
+    let expected = sha256_hex(pw);
+    pocket_cookie_value(headers)
+        .map(|v| v == expected)
+        .unwrap_or(false)
+}
+
+/// Shown instead of the UI when a password is set and the cookie is missing
+/// or stale. Kept inline so it works with no external assets (and therefore
+/// before the service worker / manifest are ever fetched).
+fn pocket_login_page(error: bool) -> Response {
+    let err_html = if error {
+        r##"<p class="err">密码错误，请重试</p>"##
+    } else {
+        ""
+    };
+    let body = format!(
+        r##"<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#09090c">
+<title>MusiCLI Pocket</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{min-height:100vh;display:grid;place-items:center;background:#09090c;color:#f3f3f5;
+font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:24px}}
+.c{{width:100%;max-width:320px;text-align:center}}
+.h{{font-size:13px;font-weight:700;letter-spacing:.3em;margin-bottom:8px}}
+.s{{font-size:12px;color:rgba(243,243,245,.45);margin-bottom:26px}}
+input{{width:100%;padding:13px 15px;font-size:16px;color:#f3f3f5;background:#1a1a21;
+border:1px solid rgba(255,255,255,.10);border-radius:12px;outline:none;margin-bottom:12px}}
+input:focus{{border-color:rgba(255,255,255,.3)}}
+button{{width:100%;padding:13px;font-size:14px;font-weight:600;color:#09090c;background:#f3f3f5;
+border:none;border-radius:12px;cursor:pointer}}
+.err{{color:#e5534b;font-size:12.5px;margin-bottom:12px}}
+</style></head>
+<body><div class="c">
+<div class="h">MUSICLI POCKET</div>
+<div class="s">输入访问密码以继续</div>
+{err_html}
+<form method="POST" action="/pocket/auth">
+<input type="password" name="password" placeholder="访问密码" autocomplete="current-password" autofocus>
+<button type="submit">进 入</button>
+</form>
+</div></body></html>"##
+    );
+    let status = if error {
+        StatusCode::UNAUTHORIZED
+    } else {
+        StatusCode::OK
+    };
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::from(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+fn pocket_bytes_resp(bytes: &'static [u8], mime: &str) -> Response {
+    Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+fn pocket_text_resp(text: &'static str, mime: &str) -> Response {
+    Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::from(text))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+async fn pocket_webui_handler(
+    AxumState(state): AxumState<SharedState>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    let (music_folder, password) = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        let pw = s.pocket_password.lock().unwrap().clone();
+        (mf, pw)
+    };
+
+    let sub_path = uri
+        .path()
+        .strip_prefix("/pocket")
+        .unwrap_or("")
+        .trim_start_matches('/');
+
+    // Prevent path traversal
+    if sub_path.contains("..") || sub_path.starts_with('/') {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    // Public PWA assets must be served without authentication so that
+    // background browser installation checks succeed without cookies.
+    match sub_path {
+        "manifest.webmanifest" => {
+            return pocket_text_resp(POCKET_MANIFEST, "application/manifest+json");
+        }
+        "sw.js" => {
+            return Response::builder()
+                .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+                .header("Service-Worker-Allowed", "/")
+                .header(header::CACHE_CONTROL, "no-cache")
+                .body(Body::from(POCKET_SW))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        }
+        "icon-180.png" => return pocket_bytes_resp(POCKET_ICON_180, "image/png"),
+        "icon-192.png" => return pocket_bytes_resp(POCKET_ICON_192, "image/png"),
+        "icon-512.png" => return pocket_bytes_resp(POCKET_ICON_512, "image/png"),
+        _ => {}
+    }
+
+    if !pocket_authorized(&headers, &password) {
+        return pocket_login_page(false);
+    }
+
+    // Try a custom UI from Listen_WebUI/Pocket/ (selected via `pocket ui`).
+    if !music_folder.is_empty() {
+        if let Ok(Some(val)) = crate::core::files::read_config(&music_folder, "pocket") {
+            if let Some(filename) = val.get("webui").and_then(|v| v.as_str()) {
+                if !filename.is_empty() {
+                    let webui_dir = Path::new(&music_folder).join("Listen_WebUI").join("Pocket");
+                    let file_path = if sub_path.is_empty() {
+                        webui_dir.join(filename)
+                    } else {
+                        webui_dir.join(sub_path)
+                    };
+                    if let Some(resp) = serve_file_if_safe(&file_path, &webui_dir) {
+                        return resp;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to the embedded default UI.
+    match sub_path {
+        "" | "index.html" => pocket_text_resp(POCKET_HTML, "text/html; charset=utf-8"),
+        _ => (StatusCode::NOT_FOUND, "Not found").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct PocketAuthForm {
+    password: String,
+}
+
+/// `POST /pocket/auth` — body is the login form. On success the browser gets
+/// a digest cookie scoped to /pocket and is redirected back to the UI.
+async fn pocket_auth(
+    AxumState(state): AxumState<SharedState>,
+    Form(form): Form<PocketAuthForm>,
+) -> Response {
+    let password = {
+        let s = state.lock().unwrap();
+        let pw = s.pocket_password.lock().unwrap().clone();
+        pw
+    };
+
+    let Some(pw) = password.filter(|p| !p.is_empty()) else {
+        // No password configured — nothing to unlock.
+        return Response::builder()
+            .status(StatusCode::SEE_OTHER)
+            .header(header::LOCATION, "/pocket")
+            .body(Body::empty())
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    };
+
+    if form.password != pw {
+        // Slow down brute-force attempts on a LAN-exposed endpoint.
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        return pocket_login_page(true);
+    }
+
+    let cookie = format!(
+        "{}={}; Path=/pocket; HttpOnly; SameSite=Lax; Max-Age=31536000",
+        POCKET_COOKIE,
+        sha256_hex(&pw)
+    );
+    Response::builder()
+        .status(StatusCode::SEE_OTHER)
+        .header(header::LOCATION, "/pocket")
+        .header(header::SET_COOKIE, cookie)
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::empty())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+#[derive(Serialize)]
+struct StatusResponse {
+    playing: bool,
+    position: f64,
+    duration: f64,
+    volume: u32,
+    mode: String,
+    play_mode: String,
+    current_index: Option<usize>,
+    playlist_len: usize,
+    current_track: Option<String>,
+}
+
+async fn status(state: AxumState<SharedState>) -> Json<StatusResponse> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    let idx = *s.current_index.lock().unwrap();
+    let track = idx.and_then(|i| s.playlist.lock().unwrap().get(i).cloned());
+    let plen = s.playlist.lock().unwrap().len();
+    let pm = s.play_mode.lock().unwrap().clone();
+    Json(StatusResponse {
+        playing: engine.is_playing(),
+        position: engine.get_position(),
+        duration: engine.get_duration(),
+        volume: engine.get_volume(),
+        mode: engine.get_mode().to_string(),
+        play_mode: pm,
+        current_index: idx,
+        playlist_len: plen,
+        current_track: track,
+    })
+}
+
+#[derive(Deserialize)]
+struct PlayRequest {
+    path: Option<String>,
+    index: Option<usize>,
+}
+
+async fn play(
+    state: AxumState<SharedState>,
+    Json(req): Json<PlayRequest>,
+) -> Result<Json<StatusResponse>, (StatusCode, String)> {
+    // Resolve the target track and grab the engine Arc while holding the
+    // state lock, then release it — engine.play() blocks on decode probing
+    // and stream setup and must not stall every other handler.
+    let (engine_arc, path, idx, prev_idx, pm) = {
+        let s = state.lock().unwrap();
+        let playlist = s.playlist.lock().unwrap().clone();
+        let prev_idx = *s.current_index.lock().unwrap();
+        // Resolve target: index → playlist[i]; path → playlist match or play
+        // the path directly (out-of-list, e.g. a downloaded remote track);
+        // neither → current_index (clamped).
+        let (path, idx): (String, Option<usize>) = if let Some(i) = req.index {
+            if playlist.is_empty() {
+                return Err((StatusCode::NOT_FOUND, "Playlist is empty".into()));
+            }
+            if i >= playlist.len() {
+                return Err((StatusCode::BAD_REQUEST, "Index out of range".into()));
+            }
+            (playlist[i].clone(), Some(i))
+        } else if let Some(ref p) = req.path {
+            match playlist.iter().position(|x| x == p) {
+                Some(i) => (playlist[i].clone(), Some(i)),
+                // Path not in playlist: play it directly, leave index untouched.
+                None => (p.clone(), None),
+            }
+        } else {
+            if playlist.is_empty() {
+                return Err((StatusCode::NOT_FOUND, "Playlist is empty".into()));
+            }
+            let i = s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1);
+            (playlist[i].clone(), Some(i))
+        };
+        if let Some(i) = idx {
+            *s.current_index.lock().unwrap() = Some(i);
+        }
+        let pm = s.play_mode.lock().unwrap().clone();
+        (s.audio_engine.clone(), path, idx, prev_idx, pm)
+    };
+
+    let play_result = {
+        let mut engine = engine_arc.lock().unwrap();
+        match engine.play(&path) {
+            Ok(()) => Ok((
+                engine.get_position(),
+                engine.get_duration(),
+                engine.get_volume(),
+                engine.get_mode().to_string(),
+            )),
+            Err(e) => Err(e),
+        }
+    };
+    let (pos, dur, vol, mode) = match play_result {
+        Ok(v) => v,
+        Err(e) => {
+            // Roll back the optimistic index update.
+            let s = state.lock().unwrap();
+            *s.current_index.lock().unwrap() = prev_idx;
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, e));
+        }
+    };
+
+    let plen = state.lock().unwrap().playlist.lock().unwrap().len();
+    Ok(Json(StatusResponse {
+        playing: true,
+        position: pos,
+        duration: dur,
+        volume: vol,
+        mode,
+        play_mode: pm,
+        current_index: idx,
+        playlist_len: plen,
+        current_track: Some(path),
+    }))
+}
+
+async fn pause(state: AxumState<SharedState>) -> Result<StatusCode, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    engine.pause();
+    Ok(StatusCode::OK)
+}
+
+async fn stop(state: AxumState<SharedState>) -> Result<StatusCode, (StatusCode, String)> {
+    // stop() joins the decoder thread — don't hold the state lock meanwhile.
+    let engine_arc = { let s = state.lock().unwrap(); s.audio_engine.clone() };
+    let mut engine = engine_arc.lock().unwrap();
+    engine.stop();
+
+    Ok(StatusCode::OK)
+}
+
+async fn next_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse>, (StatusCode, String)> {
+    // Pick the next index under the state lock, then release it before the
+    // blocking engine.play() / engine.stop() calls.
+    let (engine_arc, target, prev_idx, pm, plen) = {
+        let s = state.lock().unwrap();
+        let playlist = s.playlist.lock().unwrap().clone();
+        if playlist.is_empty() {
+            return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
+        }
+        // Clamp: current_index may be stale if the playlist shrank.
+        let cur = s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1);
+        let pm = s.play_mode.lock().unwrap().clone();
+        let plen = playlist.len();
+
+        let idx_opt = match pm.as_str() {
+            "repeat-one" => Some(cur),
+            "shuffle" => {
+                // Pick a random index different from the current one.
+                if playlist.len() == 1 {
+                    Some(cur)
+                } else {
+                    use std::collections::HashSet;
+                    let mut picked: HashSet<usize> = HashSet::new();
+                    picked.insert(cur);
+                    let mut result = cur;
+                    let mut seed = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0)
+                        .wrapping_add(cur as u64);
+                    while picked.len() < playlist.len() {
+                        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                        let cand = (seed as usize) % playlist.len();
+                        if picked.insert(cand) { result = cand; break; }
+                    }
+                    Some(result)
+                }
+            }
+            // "normal" and "repeat-all": advance, stop at end for "normal".
+            _ => {
+                if cur + 1 < playlist.len() {
+                    Some(cur + 1)
+                } else if pm == "repeat-all" {
+                    Some(0)
+                } else {
+                    None // normal mode at end — stop playback
+                }
+            }
+        };
+
+        let prev_idx = *s.current_index.lock().unwrap();
+        let target = idx_opt.map(|idx| (playlist[idx].clone(), idx));
+        *s.current_index.lock().unwrap() = idx_opt;
+        (s.audio_engine.clone(), target, prev_idx, pm, plen)
+    };
+
+    let (path, idx) = match target {
+        Some(t) => t,
+        None => {
+            let mut engine = engine_arc.lock().unwrap();
+            engine.stop();
+            return Ok(Json(StatusResponse {
+                playing: false,
+                position: 0.0,
+                duration: engine.get_duration(),
+                volume: engine.get_volume(),
+                mode: engine.get_mode().to_string(),
+                play_mode: pm,
+                current_index: None,
+                playlist_len: plen,
+                current_track: None,
+            }));
+        }
+    };
+
+    let play_result = {
+        let mut engine = engine_arc.lock().unwrap();
+        match engine.play(&path) {
+            Ok(()) => Ok((
+                engine.get_position(),
+                engine.get_duration(),
+                engine.get_volume(),
+                engine.get_mode().to_string(),
+            )),
+            Err(e) => Err(e),
+        }
+    };
+    match play_result {
+        Ok((pos, dur, vol, mode)) => Ok(Json(StatusResponse {
+            playing: true,
+            position: pos,
+            duration: dur,
+            volume: vol,
+            mode,
+            play_mode: pm,
+            current_index: Some(idx),
+            playlist_len: plen,
+            current_track: Some(path),
+        })),
+        Err(e) => {
+            let s = state.lock().unwrap();
+            *s.current_index.lock().unwrap() = prev_idx;
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e))
+        }
+    }
+}
+
+async fn prev_track(state: AxumState<SharedState>) -> Result<Json<StatusResponse>, (StatusCode, String)> {
+    // Same pattern as next_track: resolve under the state lock, play outside it.
+    let (engine_arc, path, idx, prev_idx, pm, plen) = {
+        let s = state.lock().unwrap();
+        let playlist = s.playlist.lock().unwrap().clone();
+        if playlist.is_empty() {
+            return Err((StatusCode::NOT_FOUND, "Playlist empty".into()));
+        }
+        let cur = s.current_index.lock().unwrap().unwrap_or(0).min(playlist.len() - 1);
+        let pm = s.play_mode.lock().unwrap().clone();
+        let idx = match pm.as_str() {
+            "repeat-one" => cur,
+            "shuffle" => {
+                if playlist.len() == 1 { cur } else {
+                    let mut seed = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0)
+                        .wrapping_add((cur as u64).wrapping_mul(2654435761));
+                    let mut chosen = cur;
+                    while chosen == cur {
+                        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                        chosen = (seed as usize) % playlist.len();
+                    }
+                    chosen
+                }
+            }
+            _ => if cur > 0 { cur - 1 } else { playlist.len().saturating_sub(1) },
+        };
+        let prev_idx = *s.current_index.lock().unwrap();
+        *s.current_index.lock().unwrap() = Some(idx);
+        (s.audio_engine.clone(), playlist[idx].clone(), idx, prev_idx, pm, playlist.len())
+    };
+
+    let play_result = {
+        let mut engine = engine_arc.lock().unwrap();
+        match engine.play(&path) {
+            Ok(()) => Ok((
+                engine.get_position(),
+                engine.get_duration(),
+                engine.get_volume(),
+                engine.get_mode().to_string(),
+            )),
+            Err(e) => Err(e),
+        }
+    };
+    match play_result {
+        Ok((pos, dur, vol, mode)) => Ok(Json(StatusResponse {
+            playing: true,
+            position: pos,
+            duration: dur,
+            volume: vol,
+            mode,
+            play_mode: pm,
+            current_index: Some(idx),
+            playlist_len: plen,
+            current_track: Some(path),
+        })),
+        Err(e) => {
+            let s = state.lock().unwrap();
+            *s.current_index.lock().unwrap() = prev_idx;
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct SeekRequest {
+    seconds: f64,
+}
+
+async fn seek(
+    state: AxumState<SharedState>,
+    Json(req): Json<SeekRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    engine.seek(req.seconds);
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+struct VolumeRequest {
+    level: u32,
+}
+
+async fn volume(
+    state: AxumState<SharedState>,
+    Json(req): Json<VolumeRequest>,
+) -> Result<Json<u32>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    engine.set_volume(req.level.min(100));
+    Ok(Json(engine.get_volume()))
+}
+
+#[derive(Deserialize)]
+struct ModeRequest {
+    mode: String,
+}
+
+async fn mode(
+    state: AxumState<SharedState>,
+    Json(req): Json<ModeRequest>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    let am = AudioMode::from_str(&req.mode)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // set_mode may stop + replay the current track — don't hold the state lock.
+    let engine_arc = { let s = state.lock().unwrap(); s.audio_engine.clone() };
+    let mut engine = engine_arc.lock().unwrap();
+    engine.set_mode(am);
+    Ok(Json(engine.get_mode().to_string()))
+}
+
+async fn get_playlist(state: AxumState<SharedState>) -> Json<Vec<String>> {
+    let s = state.lock().unwrap();
+    let pl = s.playlist.lock().unwrap().clone();
+    Json(pl)
+}
+
+#[derive(Deserialize)]
+struct PlaylistRequest {
+    paths: Vec<String>,
+}
+
+async fn add_playlist(
+    state: AxumState<SharedState>,
+    Json(req): Json<PlaylistRequest>,
+) -> Result<Json<usize>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mut pl = s.playlist.lock().unwrap();
+    for p in &req.paths {
+        if !pl.contains(p) {
+            pl.push(p.clone());
+        }
+    }
+    Ok(Json(pl.len()))
+}
+
+#[derive(Deserialize)]
+struct MetadataQuery {
+    path: String,
+}
+
+async fn metadata(
+    state: AxumState<SharedState>,
+    Query(q): Query<MetadataQuery>,
+) -> Result<Json<crate::core::metadata::MetadataResult>, (StatusCode, String)> {
+    // Must be an audio file *inside* the configured music folder — the HTTP API
+    // is network-exposed, so an extension check alone would allow probing
+    // metadata of audio files anywhere on the machine.
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let canon = validate_audio_in_folder(&q.path, &mf)?;
+    crate::core::metadata::read_metadata(&canon.to_string_lossy())
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(Deserialize)]
+struct FilesQuery {
+    dir: String,
+}
+
+async fn list_files(
+    state: AxumState<SharedState>,
+    Query(q): Query<FilesQuery>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let dir = validate_dir_in_folder(&q.dir, &mf)?;
+    crate::core::files::list_audio_files(&dir.to_string_lossy())
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+// ── Search ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    q: Option<String>,
+    tag: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn search_library(
+    state: AxumState<SharedState>,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<Vec<crate::core::search::SearchHit>>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    if mf.is_empty() {
+        return Err((StatusCode::FORBIDDEN, "music_folder not configured".into()));
+    }
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    // Index building reads metadata from disk — run on a blocking thread.
+    let hits = tokio::task::spawn_blocking(move || {
+        crate::core::search::search(&mf, q.q.as_deref(), q.tag.as_deref(), limit)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(hits))
+}
+
+// ── File hash ──────────────────────────────────────────────────────
+
+async fn file_hash(
+    state: AxumState<SharedState>,
+    Query(q): Query<PathQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let canon = validate_audio_in_folder(&q.path, &mf)?;
+    let canon_str = canon.to_string_lossy().to_string();
+    // Hashing a large file is CPU/IO heavy — keep it off the async runtime.
+    let (sha256, size) = tokio::task::spawn_blocking(move || {
+        crate::core::files::file_sha256_cached(&mf, &canon_str)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "sha256": sha256, "size": size })))
+}
+
+// ── Tags ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct TagsQuery {
+    path: Option<String>,
+}
+
+async fn get_tags_handler(
+    state: AxumState<SharedState>,
+    Query(q): Query<TagsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    match q.path {
+        Some(p) => crate::core::tags::get_tags(&mf, &p)
+            .map(|tags| Json(serde_json::json!({ "tags": tags })))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e)),
+        None => crate::core::tags::read_all_tags(&mf)
+            .map(|all| Json(serde_json::json!(all)))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetTagsRequest {
+    path: String,
+    tags: Vec<String>,
+}
+
+async fn set_tags_handler(
+    state: AxumState<SharedState>,
+    Json(req): Json<SetTagsRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    crate::core::tags::set_tags(&mf, &req.path, &req.tags)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
+async fn devices() -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let host = cpal::default_host();
+    let devices = host
+        .output_devices()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let names: Vec<String> = devices
+        .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+        .collect();
+    Ok(Json(names))
+}
+
+async fn get_audio_mode(state: AxumState<SharedState>) -> Json<String> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    Json(engine.get_mode().to_string())
+}
+
+async fn set_audio_mode(
+    state: AxumState<SharedState>,
+    Json(req): Json<ModeRequest>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    let am = AudioMode::from_str(&req.mode)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // set_mode may stop + replay the current track — don't hold the state lock.
+    let engine_arc = { let s = state.lock().unwrap(); s.audio_engine.clone() };
+    let mut engine = engine_arc.lock().unwrap();
+    engine.set_mode(am);
+    Ok(Json(engine.get_mode().to_string()))
+}
+
+// ── Config ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ConfigKeyQuery {
+    key: String,
+}
+
+async fn get_config(
+    state: AxumState<SharedState>,
+    Query(q): Query<ConfigKeyQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    crate::core::files::read_config(&mf, &q.key)
+        .map(|v| Json(v.unwrap_or(serde_json::Value::Null)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn put_config(
+    state: AxumState<SharedState>,
+    Query(q): Query<ConfigKeyQuery>,
+    Json(data): Json<serde_json::Value>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    crate::core::files::write_config(&mf, &q.key, &data)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(StatusCode::OK)
+}
+
+// ── Lyrics ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct LyricsQuery {
+    audio_path: String,
+}
+
+async fn search_lyrics(
+    state: AxumState<SharedState>,
+    Query(q): Query<LyricsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    // Only look up lyrics for audio files inside the music folder.
+    validate_audio_in_folder(&q.audio_path, &mf)?;
+    let result = crate::core::lyrics::find_lrc(&q.audio_path, &mf)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "lrc_path": result })))
+}
+
+async fn get_lyrics_offsets(
+    state: AxumState<SharedState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Derive lrc_dir from music_folder/lrc — never trust client-supplied paths.
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    let lrc_dir = Path::new(&mf).join("lrc");
+    let lrc_dir_str = lrc_dir.to_string_lossy().to_string();
+    let offsets = crate::core::lyrics::read_lrc_offsets(&lrc_dir_str)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!(offsets)))
+}
+
+#[derive(Deserialize)]
+struct LrcOffsetWriteRequest {
+    track_name: String,
+    offset_ms: i64,
+}
+
+async fn set_lyrics_offset(
+    state: AxumState<SharedState>,
+    Json(req): Json<LrcOffsetWriteRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    // Derive lrc_dir from music_folder/lrc — never trust client-supplied paths.
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    let lrc_dir = Path::new(&mf).join("lrc");
+    let lrc_dir_str = lrc_dir.to_string_lossy().to_string();
+    crate::core::lyrics::write_lrc_offset(&lrc_dir_str, &req.track_name, req.offset_ms)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+struct LyricsParseQuery {
+    audio_path: Option<String>,
+    lrc_path: Option<String>,
+}
+
+async fn parse_lyrics(
+    state: AxumState<SharedState>,
+    Query(q): Query<LyricsParseQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let lrc_path = if let Some(p) = q.lrc_path {
+        // Arbitrary LRC reads must stay inside the music folder.
+        validate_in_folder(&p, &mf)?.to_string_lossy().to_string()
+    } else if let Some(audio_path) = q.audio_path {
+        validate_audio_in_folder(&audio_path, &mf)?;
+        crate::core::lyrics::find_lrc(&audio_path, &mf)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "No LRC file found".into()))?
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "audio_path or lrc_path required".into()));
+    };
+
+    let content = std::fs::read_to_string(&lrc_path)
+        .map_err(|e| (StatusCode::NOT_FOUND, format!("Failed to read LRC: {}", e)))?;
+    let lines = lrc_parser::parse_lrc(&content);
+    Ok(Json(serde_json::json!(lines)))
+}
+
+// ── Files ───────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct DirQuery {
+    dir: String,
+}
+
+async fn list_dir_files(
+    state: AxumState<SharedState>,
+    Query(q): Query<DirQuery>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let dir = validate_dir_in_folder(&q.dir, &mf)?;
+    crate::core::files::list_audio_files(&dir.to_string_lossy())
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn list_html_files_handler(
+    state: AxumState<SharedState>,
+    Query(q): Query<DirQuery>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let dir = validate_dir_in_folder(&q.dir, &mf)?;
+    crate::core::files::list_html_files(&dir.to_string_lossy())
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(Deserialize)]
+struct PathQuery {
+    path: String,
+}
+
+async fn read_file_base64(
+    state: AxumState<SharedState>,
+    Query(q): Query<PathQuery>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    // The HTTP API is network-exposed (0.0.0.0): restrict to audio files
+    // *inside* the configured music folder — an extension check alone would
+    // still allow exfiltrating any audio file on the machine by absolute path.
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let canon = validate_audio_in_folder(&q.path, &mf)?;
+    crate::core::files::read_file_base64(&canon.to_string_lossy())
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+// ── Stream ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct StreamQuery {
+    /// Explicit file path to stream (file mode: Range support, original format).
+    path: Option<String>,
+    /// Live stream of the current playback (real-time PCM WAV, auto-syncs
+    /// position/song-changes/pause). Cannot be combined with `path`.
+    #[serde(default)]
+    current: bool,
+    /// Force download (Content-Disposition: attachment) instead of inline.
+    /// Only valid with `path`, not `current`.
+    #[serde(default)]
+    download: bool,
+}
+
+/// Map an audio file extension to its MIME type.
+fn audio_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("mp3") => "audio/mpeg",
+        Some("flac") => "audio/flac",
+        Some("wav") => "audio/wav",
+        Some("ogg") => "audio/ogg",
+        Some("m4a") => "audio/mp4",
+        Some("wma") => "audio/x-ms-wma",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Validate that an arbitrary path resolves inside `music_folder` (or, for
+/// not-yet-existing destinations like sync exports, that its nearest existing
+/// ancestor does). Relative paths resolve against the folder. `..` components
+/// in the non-existent tail are rejected outright — the OS would resolve them
+/// after create_dir_all and escape the folder.
+pub(crate) fn validate_in_folder(path: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
+    if music_folder.is_empty() {
+        return Err((StatusCode::FORBIDDEN, "music_folder not configured".into()));
+    }
+    let mf_canon = fs::canonicalize(music_folder)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("music_folder: {}", e)))?;
+
+    // Relative paths (as returned by /search) resolve against music_folder.
+    let joined;
+    // Windows: strip the verbatim `\\?\` prefix — such paths are not
+    // recognized as absolute by Path::is_absolute() and would be joined onto
+    // music_folder instead of being treated as an absolute path.
+    let stripped = path.trim_start_matches(r"\\?\");
+    let path_ref = if Path::new(stripped).is_absolute() {
+        stripped
+    } else {
+        joined = Path::new(music_folder).join(stripped).to_string_lossy().to_string();
+        joined.as_str()
+    };
+
+    // Canonicalize the nearest existing ancestor, then re-append the remaining
+    // components so non-existent paths (export destinations) are checked too.
+    let mut p = PathBuf::from(path_ref);
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let canon = loop {
+        match fs::canonicalize(&p) {
+            Ok(c) => break c,
+            Err(_) => match p.file_name().map(|n| n.to_os_string()) {
+                Some(name) => {
+                    tail.push(name);
+                    if !p.pop() {
+                        return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));
+                    }
+                }
+                None => return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into())),
+            },
+        }
+    };
+    let mut resolved = canon;
+    for c in tail.iter().rev() {
+        if c == ".." {
+            return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));
+        }
+        resolved.push(c);
+    }
+    if !resolved.starts_with(&mf_canon) {
+        return Err((StatusCode::FORBIDDEN, "Path outside music_folder".into()));
+    }
+    Ok(resolved)
+}
+
+/// Validate that `dir` exists and is `music_folder` itself or a subdirectory.
+pub(crate) fn validate_dir_in_folder(dir: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
+    let resolved = validate_in_folder(dir, music_folder)?;
+    if !resolved.is_dir() {
+        return Err((StatusCode::FORBIDDEN, "Not a directory".into()));
+    }
+    Ok(resolved)
+}
+
+/// Validate that `path` is an existing audio file inside `music_folder`.
+pub(crate) fn validate_audio_in_folder(path: &str, music_folder: &str) -> Result<PathBuf, (StatusCode, String)> {
+    let resolved = validate_in_folder(path, music_folder)?;
+    if !resolved.exists() {
+        return Err((StatusCode::NOT_FOUND, format!("File not found: {}", resolved.display())));
+    }
+    if !resolved.is_file() {
+        return Err((StatusCode::FORBIDDEN, "Not a regular file".into()));
+    }
+    if !crate::core::files::is_audio_file(&resolved) {
+        return Err((StatusCode::FORBIDDEN, "Only audio files are allowed".into()));
+    }
+    Ok(resolved)
+}
+
+/// Parse a `Range: bytes=...` header into (start, end_inclusive). `end` is
+/// clamped to `total - 1`. Returns None for unparseable / unsupported ranges.
+fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
+    let s = header.strip_prefix("bytes=")?;
+    let (start_s, end_s) = s.split_once('-')?;
+    match (start_s.is_empty(), end_s.is_empty()) {
+        // bytes=-N : last N bytes
+        (true, false) => {
+            let n: u64 = end_s.parse().ok()?;
+            if n == 0 || total == 0 {
+                return None;
+            }
+            let start = total.saturating_sub(n);
+            Some((start, total - 1))
+        }
+        // bytes=N- : from N to end
+        (false, true) => {
+            let start: u64 = start_s.parse().ok()?;
+            if start >= total {
+                return None;
+            }
+            Some((start, total - 1))
+        }
+        // bytes=N-M : explicit range
+        (false, false) => {
+            let start: u64 = start_s.parse().ok()?;
+            let end: u64 = end_s.parse().ok()?;
+            if start > end || start >= total {
+                return None;
+            }
+            Some((start, end.min(total - 1)))
+        }
+        _ => None,
+    }
+}
+
+async fn stream(
+    state: AxumState<SharedState>,
+    Query(q): Query<StreamQuery>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, String)> {
+    // Live mode: real-time PCM WAV stream of the current playback.
+    if q.current {
+        return super::live::live_stream(state.0.clone());
+    }
+
+    // File mode: stream a specific file with Range support.
+    let path_str = if let Some(p) = q.path {
+        p
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "Provide 'path' or 'current=true'".into()));
+    };
+
+    if path_str.is_empty() {
+        return Err((StatusCode::NOT_FOUND, "Empty path".into()));
+    }
+
+    // Security: must be an audio file inside music_folder.
+    let mf = {
+        let s = state.lock().unwrap();
+        let mf = s.music_folder.lock().unwrap().clone();
+        mf
+    };
+    let canon = validate_audio_in_folder(&path_str, &mf)?;
+
+    // Open file and read total length.
+    let file = tokio::fs::File::open(&canon)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, format!("Open: {}", e)))?;
+    let total = file
+        .metadata()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Metadata: {}", e)))?
+        .len();
+
+    let content_type = audio_content_type(&canon);
+    let filename = canon
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("audio")
+        .to_string();
+
+    // Parse Range header (optional).
+    let range_str = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let (start, end, partial) = match range_str.as_deref() {
+        Some(r) => match parse_range(r, total) {
+            Some((st, en)) => (st, en, true),
+            None => (0, total.saturating_sub(1), false),
+        },
+        None => (0, total.saturating_sub(1), false),
+    };
+
+    let content_length = if total == 0 { 0 } else { end - start + 1 };
+
+    // Seek to start and wrap in a length-limited stream.
+    let mut file = file;
+    if total > 0 {
+        file.seek(std::io::SeekFrom::Start(start))
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Seek: {}", e)))?;
+    }
+    let body = Body::from_stream(ReaderStream::new(file.take(content_length)));
+
+    // Build response.
+    let disposition = if q.download {
+        format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""))
+    } else {
+        "inline".to_string()
+    };
+
+    let mut builder = Response::builder()
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_LENGTH, content_length.to_string())
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_DISPOSITION, disposition);
+
+    if total > 0 {
+        builder = builder.header(
+            header::CONTENT_RANGE,
+            format!("bytes {}-{}/{}", start, end, total),
+        );
+    }
+
+    let status = if partial && total > 0 {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
+
+    builder
+        .status(status)
+        .body(body)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+// ── Stream Info (SSE) ───────────────────────────────────────────────
+
+async fn stream_info(
+    state: AxumState<SharedState>,
+) -> Result<Response, (StatusCode, String)> {
+    super::live::live_info(state.0.clone())
+}
+
+// ── Sync ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SyncExportRequest {
+    dest_zip: String,
+    #[serde(default)]
+    playlist_names: Vec<String>,
+}
+
+async fn export_sync(
+    state: AxumState<SharedState>,
+    Json(req): Json<SyncExportRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    // Destination must be inside the music folder. The check canonicalizes
+    // through the nearest existing ancestor so non-existent paths can't smuggle
+    // `..` components past the prefix test.
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    let dest_zip = validate_in_folder(&req.dest_zip, &mf)?.to_string_lossy().to_string();
+
+    // Build a lightweight export: read playlists, filter if needed, write JSON, zip it
+    use crate::core::playlist::{get_playlist, list_playlists};
+    let infos = list_playlists(&mf)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let names_to_export: Vec<String> = if req.playlist_names.is_empty() {
+        infos.iter().map(|i| i.name.clone()).collect()
+    } else {
+        req.playlist_names.clone()
+    };
+
+    let mut export: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    for name in &names_to_export {
+        if let Ok(Some(pl)) = get_playlist(&mf, name) {
+            export.insert(name.clone(), serde_json::json!(pl));
+        }
+    }
+    let current = crate::core::playlist::get_current_playlist_name(&mf)
+        .unwrap_or_else(|_| "Default".into());
+    let export_obj = serde_json::json!({
+        "playlists": export,
+        "current": current,
+    });
+    let json_bytes = serde_json::to_vec_pretty(&export_obj)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Write playlists.json into a ZIP
+    if let Some(parent) = Path::new(&dest_zip).parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+    let zip_file = fs::File::create(&dest_zip)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut zip = zip::ZipWriter::new(zip_file);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file("playlists.json", opts)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    zip.write_all(&json_bytes)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    zip.finish()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+struct SyncImportRequest {
+    zip_path: String,
+}
+
+async fn import_sync(
+    state: AxumState<SharedState>,
+    Json(req): Json<SyncImportRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+
+    // The ZIP must be inside the music folder.
+    let zip_path = validate_in_folder(&req.zip_path, &mf)?.to_string_lossy().to_string();
+    let zip_file = fs::File::open(&zip_path)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Cannot open ZIP: {}", e)))?;
+    let mut archive = zip::ZipArchive::new(zip_file)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ZIP: {}", e)))?;
+
+    // Look for playlists.json inside the ZIP
+    let mut playlist_json: Option<String> = None;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if entry.name() == "playlists.json" {
+            let mut content = String::new();
+            entry.read_to_string(&mut content)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            playlist_json = Some(content);
+            break;
+        }
+    }
+
+    let content = playlist_json
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "No playlists.json found in ZIP".to_string()))?;
+    let incoming: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Malformed playlists.json: {}", e)))?;
+
+    let incoming_pls = incoming
+        .get("playlists")
+        .and_then(|v| v.as_object());
+    let mut imported_count: usize = 0;
+    if let Some(pls_obj) = incoming_pls {
+        for (name, pl) in pls_obj {
+            let tracks: Vec<String> = pl.get("tracks")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let desc = pl.get("desc").and_then(|v| v.as_str());
+            match crate::core::playlist::create_playlist(&mf, name, desc, &tracks) {
+                Ok(()) => { imported_count += 1; }
+                Err(e) if e == "duplicate" => { /* skip existing */ }
+                Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({ "imported": imported_count })))
+}
+
+// ── Status sub-routes ────────────────────────────────────────────────
+
+async fn status_position(state: AxumState<SharedState>) -> Json<f64> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    Json(engine.get_position())
+}
+
+async fn status_duration(state: AxumState<SharedState>) -> Json<f64> {
+    let s = state.lock().unwrap();
+    let engine = s.audio_engine.lock().unwrap();
+    Json(engine.get_duration())
+}
+
+// ── Play mode ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PlayModeRequest {
+    mode: String,
+}
+
+const PLAY_MODES: &[&str] = &["normal", "repeat-one", "repeat-all", "shuffle"];
+
+async fn get_play_mode(state: AxumState<SharedState>) -> Json<String> {
+    let s = state.lock().unwrap();
+    let pm = s.play_mode.lock().unwrap().clone();
+    Json(pm)
+}
+
+async fn set_play_mode(
+    state: AxumState<SharedState>,
+    Json(req): Json<PlayModeRequest>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    if !PLAY_MODES.contains(&req.mode.as_str()) {
+        return Err((StatusCode::BAD_REQUEST, format!("Invalid play_mode. Must be one of: {:?}", PLAY_MODES)));
+    }
+    let s = state.lock().unwrap();
+    *s.play_mode.lock().unwrap() = req.mode.clone();
+    Ok(Json(req.mode))
+}
+
+// ── Named playlists ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct CreatePlaylistRequest {
+    name: String,
+    #[serde(default)]
+    desc: String,
+    #[serde(default)]
+    tracks: Vec<String>,
+}
+
+async fn list_playlists(
+    state: AxumState<SharedState>,
+) -> Result<Json<Vec<crate::core::playlist::PlaylistInfo>>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    crate::core::playlist::list_playlists(&mf)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn create_playlist(
+    state: AxumState<SharedState>,
+    Json(req): Json<CreatePlaylistRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    let desc = if req.desc.is_empty() { None } else { Some(req.desc.as_str()) };
+    crate::core::playlist::create_playlist(&mf, &req.name, desc, &req.tracks)
+        .map(|_| Json(serde_json::json!({ "created": req.name })))
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+#[derive(Deserialize)]
+struct PlaylistNameQuery {
+    name: String,
+}
+
+async fn get_playlist_single(
+    state: AxumState<SharedState>,
+    Query(q): Query<PlaylistNameQuery>,
+) -> Result<Json<Option<crate::core::playlist::Playlist>>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    crate::core::playlist::get_playlist(&mf, &q.name)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+async fn delete_playlist_single(
+    state: AxumState<SharedState>,
+    Query(q): Query<PlaylistNameQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    crate::core::playlist::delete_playlist(&mf, &q.name)
+        .map(|_| Json(serde_json::json!({ "deleted": q.name })))
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+#[derive(Deserialize)]
+struct UpdatePlaylistRequest {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    desc: String,
+    #[serde(default)]
+    tracks: Option<Vec<String>>,
+}
+
+async fn update_playlist_single(
+    state: AxumState<SharedState>,
+    Query(q): Query<PlaylistNameQuery>,
+    Json(req): Json<UpdatePlaylistRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    drop(s);
+    let new_name = if req.name.is_empty() || req.name == q.name { None } else { Some(req.name.as_str()) };
+    let desc = if req.desc.is_empty() { None } else { Some(req.desc.as_str()) };
+    let tracks = req.tracks.as_deref();
+    crate::core::playlist::update_playlist(&mf, &q.name, new_name, desc, tracks)
+        .map(|_| Json(serde_json::json!({ "updated": q.name })))
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+async fn switch_playlist(
+    state: AxumState<SharedState>,
+    Json(req): Json<PlaylistNameQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let mf = s.music_folder.lock().unwrap().clone();
+    // Verify the playlist exists and is non-empty BEFORE writing current to disk.
+    // This avoids the inconsistent state where the file says current=X but we
+    // return 404 to the caller.
+    let pl = crate::core::playlist::get_playlist(&mf, &req.name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Playlist '{}' not found", req.name)))?;
+    if pl.tracks.is_empty() {
+        return Err((StatusCode::NOT_FOUND, format!("Playlist '{}' is empty", req.name)));
+    }
+    crate::core::playlist::switch_playlist(&mf, &req.name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    match crate::server_state::load_current_playlist(&s) {
+        Ok(len) => {
+            Ok(Json(serde_json::json!({
+                "switched": req.name,
+                "track_count": len,
+            })))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+async fn refresh_playlist(
+    state: AxumState<SharedState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let s = state.lock().unwrap();
+    let count = crate::server_state::load_current_playlist(&s)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({
+        "refreshed": true,
+        "track_count": count,
+    })))
+}
+
+// ── Folder ───────────────────────────────────────────────────────────
+// Removed: /folder let any LAN client repoint music_folder and persist it.
+// GUI sets the music folder via the set_music_folder Tauri command instead.

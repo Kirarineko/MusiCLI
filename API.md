@@ -639,10 +639,38 @@ The page connects to:
 
 **Security:** The page only uses read-only endpoints. Audio file paths are validated against `music_folder`. Custom WebUI files must reside in `{music_folder}/Listen_WebUI/` (path traversal is blocked).
 
+## Pocket Player
+
+### GET /pocket
+The **Pocket player** — a mobile-first, installable PWA ("MusiCLI Pocket") for browsing and playing the library directly from the server (unlike /listen, the guest controls playback). Serves the built-in UI (`assets/pocket.html`) plus its static assets:
+
+- `GET /pocket/manifest.webmanifest` — PWA manifest (scope `/pocket`)
+- `GET /pocket/sw.js` — service worker (offline shell caching)
+- `GET /pocket/icon-{180|192|512}.png` — app icons
+
+**Custom WebUI:** Place HTML files in `{music_folder}/Listen_WebUI/Pocket/` and use the `pocket ui` command to select one. `pocket ui default` restores the built-in UI. Custom files must stay inside that directory (path traversal is blocked).
+
+**Access password (optional):** Set with the GUI command `pocket pw <password>` (clear with `pocket pw off`). Persisted in `{music_folder}/config/pocket.json` alongside the webui selection; applies immediately, no restart needed. When set:
+
+- Requests to `/pocket*` without a valid session get a password page
+- `POST /pocket/auth` — form endpoint (`password=<pw>`), sets an HttpOnly `pocket_auth` cookie (SHA-256 of the password, scoped to `/pocket`) and redirects back to `/pocket`; wrong passwords are rate-limited (800 ms delay)
+- The API endpoints themselves are unaffected — combine with `--token` if you also want the REST API protected
+
+**Usage:** Type `pocket` in the terminal REPL to get the URL (e.g. `http://<lan-ip>:52013/pocket`). Open it on a phone in the same LAN, then "Add to Home Screen" to install as a PWA.
+
+## LocalPlay (LP) WebUI
+
+### GET /sakura
+The **Sakura Player WebUI** — a full-featured standalone browser player served from `/sakura`.
+By default serves the built-in `assets/sakura.html`.
+
+- Serves full player controls with audio playback, playlists, track searching, and synchronized lyrics.
+- Activated via the `lp` (LocalPlay) command in the terminal REPL, which automatically opens the system's default browser to `http://localhost:<PORT>/sakura`.
+
 ## Notes
 
-- The HTTP server and GUI share a **single audio engine**. HTTP API calls directly control GUI playback and vice versa. The GUI frontend polls `/status` every 1s to reconcile state changes from external API calls (song changes, pause/play, etc.).
+- The HTTP server and terminal REPL share a **single audio engine**. HTTP API calls directly control terminal playback and vice versa.
 - The `/stream?current=true` endpoint provides a real-time PCM WAV live stream of the current playback. It auto-syncs position, song changes, and pause state — suitable for "listen together" scenarios.
 - The `/stream?path=...` endpoint streams files directly with Range support for seekable browser playback.
-- The `music_folder` used by HTTP endpoints is read from `ServerState`, which is currently unset by default. Config and lyrics endpoints may return `null` / empty results if `music_folder` is not configured.
+- The `music_folder` used by HTTP endpoints is read from `ServerState`. Config and lyrics endpoints may return `null` / empty results if `music_folder` is not configured.
 - All POST/PUT endpoints use `Content-Type: application/json`.

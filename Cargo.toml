@@ -1,0 +1,72 @@
+[package]
+name = "musicli"
+version = "4.0.0"
+edition = "2021"
+
+[features]
+default = []
+asio = ["cpal/asio"]
+
+[lib]
+name = "musicli_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "musicli"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Audio metadata
+lofty = "0.21"
+
+# Audio decoding
+symphonia = { version = "0.6", features = [
+    "mp3",
+    "aac",
+    "isomp4",
+    "alac",
+    "flac",
+    "vorbis",
+    "pcm",
+    "wav",
+] }
+
+# Audio output (WASAPI default + ASIO optional)
+cpal = "0.18"
+
+# Lock-free ring buffer
+rb = "0.4"
+
+# Sample rate conversion
+rubato = "0.16"
+
+# ZIP
+zip = "2"
+
+# Utilities
+walkdir = "2"
+base64 = "0.22"
+dirs = "5"
+regex = "1"
+chrono = "0.4"
+sha2 = "0.10"
+
+# CLI REPL
+rustyline = "15"
+
+# HTTP API & live stream server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "fs", "io-util"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+bytes = "1"
+futures-util = "0.3"
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
