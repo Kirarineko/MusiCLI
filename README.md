@@ -158,18 +158,9 @@ curl "http://127.0.0.1:PORT/files?dir=/home/user/Music"
 | 命令 | 说明 |
 | - | - |
 | `lp` / `localplay` | **LocalPlay**：自动唤起系统默认浏览器，打开专属内置 Sakura 樱花 WebUI（端点 `/lp`） |
+| `listen [open|ui]` | **一起听 WebUI**：显示端口与访问 URL、浏览器打开或切换 WebUI 模板皮肤（端点 `/listen`） |
+| `pocket [open|ui|pw]` | **Pocket 随行播放器**：显示移动端 PWA 访问 URL、切换 WebUI 皮肤或设置访问密码（端点 `/pocket`） |
 
-| `server connect <名称>` | 连接服务器（`server list` 查看已保存） |
-| `server search <关键词> [--tag <标签>]` | 搜索服务器上的音乐 |
-| `server play <n> [--add|--no-add]` | 下载并播放（已下载过则哈希比对后直接复用；`--add`/`--no-add` 按次覆盖 autoadd） |
-| `server get <n>` | 仅下载到 `{music_folder}/remote/<服务器名>/` |
-| `server autoadd on|off` | `server play` 是否把曲目加入默认歌单（默认开；`--add`/`--no-add` 按次覆盖） |
-| `llm url|key|model|audio` | 配置自动打标 LLM（OpenAI 兼容 API；key 明文存 settings.json） |
-| `focuskey <加速键>` | 全局快捷键一键聚焦输入框（默认 ctrl+f1；`focuskey off` 禁用） |
-| `lang <en|zh|ja>` | 切换语言 |
-| `help` | 帮助 |
-| `clear` | 清屏 |
-| `quit` | 退出 |
 
 
 ### Sync 分享

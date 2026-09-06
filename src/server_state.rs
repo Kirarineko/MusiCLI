@@ -135,15 +135,8 @@ pub fn load_pocket_config(state: &ServerState) {
 
 /// Update the in-memory pocket password and persist it, preserving the
 /// `webui` key. `None` (or an empty string) clears the password.
-pub fn set_pocket_password(password: Option<String>) -> Result<(), String> {
-    let state = GLOBAL_STATE
-        .get()
-        .ok_or_else(|| "server state not initialized".to_string())?;
-    let mf = {
-        let s = state.lock().unwrap();
-        let folder = s.music_folder.lock().unwrap().clone();
-        folder
-    };
+pub fn set_pocket_password_on_state(state: &ServerState, password: Option<String>) -> Result<(), String> {
+    let mf = state.music_folder.lock().unwrap().clone();
     if mf.is_empty() {
         return Err("music folder not configured".into());
     }
@@ -162,7 +155,62 @@ pub fn set_pocket_password(password: Option<String>) -> Result<(), String> {
     }
     crate::core::files::write_config(&mf, "pocket", &cfg)?;
 
-    *state.lock().unwrap().pocket_password.lock().unwrap() = password;
+    *state.pocket_password.lock().unwrap() = password;
+    Ok(())
+}
+
+pub fn set_pocket_password(password: Option<String>) -> Result<(), String> {
+    let state = GLOBAL_STATE
+        .get()
+        .ok_or_else(|| "server state not initialized".to_string())?;
+    let guard = state.lock().unwrap();
+    set_pocket_password_on_state(&guard, password)
+}
+
+pub fn read_pocket_webui(music_folder: &str) -> Option<String> {
+    read_pocket_config(music_folder)
+        .and_then(|cfg| cfg.get("webui").and_then(|w| w.as_str().map(|s| s.to_string())))
+        .filter(|s| !s.is_empty())
+}
+
+pub fn set_pocket_webui_on_state(state: &ServerState, webui: Option<String>) -> Result<(), String> {
+    let mf = state.music_folder.lock().unwrap().clone();
+    if mf.is_empty() {
+        return Err("music folder not configured".into());
+    }
+    let mut cfg = read_pocket_config(&mf).unwrap_or_else(|| serde_json::json!({}));
+    match &webui {
+        Some(w) if !w.is_empty() => {
+            cfg["webui"] = serde_json::json!(w);
+        }
+        _ => {
+            if let Some(obj) = cfg.as_object_mut() {
+                obj.remove("webui");
+            }
+        }
+    }
+    crate::core::files::write_config(&mf, "pocket", &cfg)?;
+    Ok(())
+}
+
+pub fn read_listen_webui(music_folder: &str) -> Option<String> {
+    if music_folder.is_empty() {
+        return None;
+    }
+    crate::core::files::read_config(music_folder, "listen-webui")
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+pub fn set_listen_webui_on_state(state: &ServerState, webui: Option<String>) -> Result<(), String> {
+    let mf = state.music_folder.lock().unwrap().clone();
+    if mf.is_empty() {
+        return Err("music folder not configured".into());
+    }
+    let val = webui.unwrap_or_default();
+    crate::core::files::write_config(&mf, "listen-webui", &serde_json::json!(val))?;
     Ok(())
 }
 
@@ -185,3 +233,58 @@ pub fn load_current_playlist(state: &ServerState) -> Result<usize, String> {
         Err(_) => Ok(0),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pocket_config_helpers() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mf = dir.path().to_str().unwrap().to_string();
+
+        let state = ServerState::new();
+        *state.music_folder.lock().unwrap() = mf.clone();
+
+        assert_eq!(read_pocket_webui(&mf), None);
+
+        // Set pocket password
+        set_pocket_password_on_state(&state, Some("secret123".to_string())).unwrap();
+        assert_eq!(*state.pocket_password.lock().unwrap(), Some("secret123".to_string()));
+
+        // Set pocket webui, ensure password is kept
+        set_pocket_webui_on_state(&state, Some("mini.html".to_string())).unwrap();
+        assert_eq!(read_pocket_webui(&mf), Some("mini.html".to_string()));
+        let cfg = read_pocket_config(&mf).unwrap();
+        assert_eq!(cfg["password"], "secret123");
+        assert_eq!(cfg["webui"], "mini.html");
+
+        // Clear webui, ensure password is still kept
+        set_pocket_webui_on_state(&state, None).unwrap();
+        assert_eq!(read_pocket_webui(&mf), None);
+        let cfg = read_pocket_config(&mf).unwrap();
+        assert_eq!(cfg["password"], "secret123");
+
+        // Clear password
+        set_pocket_password_on_state(&state, None).unwrap();
+        assert_eq!(*state.pocket_password.lock().unwrap(), None);
+    }
+
+    #[test]
+    fn test_listen_webui_helpers() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mf = dir.path().to_str().unwrap().to_string();
+
+        let state = ServerState::new();
+        *state.music_folder.lock().unwrap() = mf.clone();
+
+        assert_eq!(read_listen_webui(&mf), None);
+
+        set_listen_webui_on_state(&state, Some("custom.html".to_string())).unwrap();
+        assert_eq!(read_listen_webui(&mf), Some("custom.html".to_string()));
+
+        set_listen_webui_on_state(&state, None).unwrap();
+        assert_eq!(read_listen_webui(&mf), None);
+    }
+}
+

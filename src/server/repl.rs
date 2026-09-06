@@ -534,7 +534,7 @@ pub fn run_repl(state: Arc<Mutex<ServerState>>) {
     print_banner();
     println!("  「NekoCraft」 MusiCLI v{}", env!("CARGO_PKG_VERSION"));
     println!("  HTTP API listening on http://{}:{}", host, port);
-    println!("  Type 'help' for commands, 'lp' for WebUI, 'quit' to exit.");
+    println!("  Type 'help' for commands, 'lp' / 'listen' / 'pocket' for WebUIs, 'quit' to exit.");
     println!();
 
     {
@@ -622,6 +622,14 @@ fn exec(state: &Arc<Mutex<ServerState>>, raw: &str) -> bool {
         }
         "lp" | "localplay" => {
             localplay();
+            false
+        }
+        "listen" => {
+            listen_cmd(state, args);
+            false
+        }
+        "pocket" => {
+            pocket_cmd(state, args);
             false
         }
         "status" => {
@@ -765,6 +773,7 @@ fn print_status(state: &Arc<Mutex<ServerState>>) {
     println!("  HTTP API:     http://{}:{}", host, port);
     println!("  WebUI (LP):   http://127.0.0.1:{}/lp", port);
     println!("  WebUI (Sync): http://127.0.0.1:{}/listen", port);
+    println!("  Pocket (PWA): http://127.0.0.1:{}/pocket", port);
     println!("  Playing:      {}", if engine.is_playing() { "Yes" } else { "No" });
     println!("  Track:        {}", cur_track);
     println!("  Playlist:     {} ({} tracks)", pl_name, pl_len);
@@ -772,6 +781,311 @@ fn print_status(state: &Arc<Mutex<ServerState>>) {
     println!("  Volume:       {}", engine.get_volume());
     println!("  Lyrics:       {}", if *s.lrc_enabled.lock().unwrap() { "ON" } else { "OFF" });
     println!();
+}
+
+pub fn get_local_ip() -> Option<String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    let addr = socket.local_addr().ok()?;
+    let ip = addr.ip().to_string();
+    if ip == "0.0.0.0" || ip == "127.0.0.1" {
+        None
+    } else {
+        Some(ip)
+    }
+}
+
+pub fn match_skin_choice(input: &str, files: &[String]) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(idx) = trimmed.parse::<usize>() {
+        if idx >= 1 && idx <= files.len() {
+            return Some(files[idx - 1].clone());
+        }
+    }
+    let lower = trimmed.to_lowercase();
+    if let Some(f) = files.iter().find(|f| f.eq_ignore_ascii_case(&lower)) {
+        return Some(f.clone());
+    }
+    if let Some(f) = files.iter().find(|f| {
+        let stem = std::path::Path::new(f.as_str())
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        stem.eq_ignore_ascii_case(&lower)
+    }) {
+        return Some(f.clone());
+    }
+    if let Some(f) = files.iter().find(|f| f.to_lowercase().contains(&lower)) {
+        return Some(f.clone());
+    }
+    None
+}
+
+fn listen_cmd(state: &Arc<Mutex<ServerState>>, args: &[&str]) {
+    let port = std::env::var("MUSICLI_HTTP_PORT").unwrap_or_else(|_| "52013".to_string());
+    let host = std::env::var("MUSICLI_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let sub = args.first().copied().unwrap_or("");
+    let rest = args.get(1..).unwrap_or(&[]);
+
+    match sub {
+        "open" => {
+            let url = format!("http://127.0.0.1:{}/listen", port);
+            match open_browser(&url) {
+                Ok(()) => println!("  [Listen] WebUI opened in browser: {}", url),
+                Err(e) => println!("  [Listen] Failed to open browser: {}. Please visit: {}", e, url),
+            }
+        }
+        "ui" | "skin" => {
+            let mf = state.lock().unwrap().music_folder.lock().unwrap().clone();
+            if mf.is_empty() {
+                println!("No music folder configured. Use 'open <dir>' first.");
+                return;
+            }
+
+            let webui_dir = std::path::Path::new(&mf).join("Listen_WebUI");
+            let _ = std::fs::create_dir_all(&webui_dir);
+            let dir_str = webui_dir.to_string_lossy().to_string();
+            let files = crate::core::files::list_html_files(&dir_str).unwrap_or_default();
+            let cur_ui = crate::server_state::read_listen_webui(&mf);
+
+            if rest.is_empty() {
+                println!();
+                println!("  Listen WebUI Skins (in {}):", dir_str);
+                let is_default_active = cur_ui.is_none();
+                println!(
+                    "    0. [Built-in Default]{}",
+                    if is_default_active { "  ◀ (active)" } else { "" }
+                );
+                for (i, f) in files.iter().enumerate() {
+                    let is_active = cur_ui.as_deref() == Some(f.as_str());
+                    println!(
+                        "    {}. {}{}",
+                        i + 1,
+                        f,
+                        if is_active { "  ◀ (active)" } else { "" }
+                    );
+                }
+                if files.is_empty() {
+                    println!("    (No custom skins found. Drop .html files here to customize)");
+                }
+                println!();
+                print!("Select skin (0-{}, name, or Enter to cancel): ", files.len());
+                let _ = io::stdout().flush();
+                let mut in_ = String::new();
+                if io::stdin().read_line(&mut in_).is_ok() {
+                    let choice = in_.trim();
+                    if choice.is_empty() {
+                        return;
+                    }
+                    if choice == "0" || choice.eq_ignore_ascii_case("default") || choice.eq_ignore_ascii_case("reset") {
+                        let s = state.lock().unwrap();
+                        let _ = crate::server_state::set_listen_webui_on_state(&s, None);
+                        println!("Reset Listen WebUI to built-in default.");
+                    } else if let Some(target) = match_skin_choice(choice, &files) {
+                        let s = state.lock().unwrap();
+                        let _ = crate::server_state::set_listen_webui_on_state(&s, Some(target.clone()));
+                        println!("Switched Listen WebUI to: {}", target);
+                    } else {
+                        println!("Invalid selection.");
+                    }
+                }
+            } else {
+                let target_arg = rest.join(" ");
+                if target_arg == "0" || target_arg.eq_ignore_ascii_case("default") || target_arg.eq_ignore_ascii_case("reset") {
+                    let s = state.lock().unwrap();
+                    let _ = crate::server_state::set_listen_webui_on_state(&s, None);
+                    println!("Reset Listen WebUI to built-in default.");
+                } else if let Some(target) = match_skin_choice(&target_arg, &files) {
+                    let s = state.lock().unwrap();
+                    let _ = crate::server_state::set_listen_webui_on_state(&s, Some(target.clone()));
+                    println!("Switched Listen WebUI to: {}", target);
+                } else {
+                    println!("Skin '{}' not found. Use 'listen ui' to list available skins.", target_arg);
+                }
+            }
+        }
+        _ => {
+            let mf = state.lock().unwrap().music_folder.lock().unwrap().clone();
+            let cur_ui = crate::server_state::read_listen_webui(&mf)
+                .unwrap_or_else(|| "Built-in Default".to_string());
+            let local_ip = get_local_ip();
+
+            println!();
+            println!("  Listen WebUI (Real-time Stream & Remote Control):");
+            println!("    Port:       {}", port);
+            println!("    Local URL:  http://127.0.0.1:{}/listen", port);
+            if host == "0.0.0.0" {
+                if let Some(ip) = local_ip {
+                    println!("    LAN URL:    http://{}:{}/listen", ip, port);
+                } else {
+                    println!("    LAN URL:    http://<server-ip>:{}/listen", port);
+                }
+            } else if host != "127.0.0.1" {
+                println!("    Host URL:   http://{}:{}/listen", host, port);
+            }
+            println!("    Active UI:  {}", cur_ui);
+            if !mf.is_empty() {
+                let webui_dir = std::path::Path::new(&mf).join("Listen_WebUI");
+                println!("    Folder:     {}", webui_dir.to_string_lossy());
+            }
+            println!();
+            println!("  Usage:");
+            println!("    listen open          - Open Listen WebUI in default browser");
+            println!("    listen ui            - List and switch Listen WebUI skins");
+            println!("    listen ui <name|n>   - Switch to skin by name or number");
+            println!("    listen ui default    - Reset to built-in default skin");
+            println!();
+        }
+    }
+}
+
+fn pocket_cmd(state: &Arc<Mutex<ServerState>>, args: &[&str]) {
+    let port = std::env::var("MUSICLI_HTTP_PORT").unwrap_or_else(|_| "52013".to_string());
+    let host = std::env::var("MUSICLI_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let sub = args.first().copied().unwrap_or("");
+    let rest = args.get(1..).unwrap_or(&[]);
+
+    match sub {
+        "open" => {
+            let url = format!("http://127.0.0.1:{}/pocket", port);
+            match open_browser(&url) {
+                Ok(()) => println!("  [Pocket] WebUI opened in browser: {}", url),
+                Err(e) => println!("  [Pocket] Failed to open browser: {}. Please visit: {}", e, url),
+            }
+        }
+        "pw" | "password" => {
+            if rest.is_empty() {
+                let s = state.lock().unwrap();
+                let has_pw = s.pocket_password.lock().unwrap().is_some();
+                println!("Pocket password protection: {}", if has_pw { "Enabled" } else { "Disabled" });
+                println!("Usage: pocket pw <password> | pocket pw off");
+            } else {
+                let val = rest.join(" ");
+                let s = state.lock().unwrap();
+                if val.eq_ignore_ascii_case("off") || val.eq_ignore_ascii_case("clear") || val.eq_ignore_ascii_case("none") {
+                    let _ = crate::server_state::set_pocket_password_on_state(&s, None);
+                    println!("Pocket password protection disabled.");
+                } else {
+                    match crate::server_state::set_pocket_password_on_state(&s, Some(val)) {
+                        Ok(()) => println!("Pocket password updated successfully."),
+                        Err(e) => println!("Error setting pocket password: {}", e),
+                    }
+                }
+            }
+        }
+        "ui" | "skin" => {
+            let mf = state.lock().unwrap().music_folder.lock().unwrap().clone();
+            if mf.is_empty() {
+                println!("No music folder configured. Use 'open <dir>' first.");
+                return;
+            }
+
+            let pocket_dir = std::path::Path::new(&mf).join("Listen_WebUI").join("Pocket");
+            let _ = std::fs::create_dir_all(&pocket_dir);
+            let dir_str = pocket_dir.to_string_lossy().to_string();
+            let files = crate::core::files::list_html_files(&dir_str).unwrap_or_default();
+            let cur_ui = crate::server_state::read_pocket_webui(&mf);
+
+            if rest.is_empty() {
+                println!();
+                println!("  Pocket WebUI Skins (in {}):", dir_str);
+                let is_default_active = cur_ui.is_none();
+                println!(
+                    "    0. [Built-in Default PWA]{}",
+                    if is_default_active { "  ◀ (active)" } else { "" }
+                );
+                for (i, f) in files.iter().enumerate() {
+                    let is_active = cur_ui.as_deref() == Some(f.as_str());
+                    println!(
+                        "    {}. {}{}",
+                        i + 1,
+                        f,
+                        if is_active { "  ◀ (active)" } else { "" }
+                    );
+                }
+                if files.is_empty() {
+                    println!("    (No custom Pocket skins found. Drop .html files here to customize)");
+                }
+                println!();
+                print!("Select skin (0-{}, name, or Enter to cancel): ", files.len());
+                let _ = io::stdout().flush();
+                let mut in_ = String::new();
+                if io::stdin().read_line(&mut in_).is_ok() {
+                    let choice = in_.trim();
+                    if choice.is_empty() {
+                        return;
+                    }
+                    if choice == "0" || choice.eq_ignore_ascii_case("default") || choice.eq_ignore_ascii_case("reset") {
+                        let s = state.lock().unwrap();
+                        let _ = crate::server_state::set_pocket_webui_on_state(&s, None);
+                        println!("Reset Pocket WebUI to built-in default PWA.");
+                    } else if let Some(target) = match_skin_choice(choice, &files) {
+                        let s = state.lock().unwrap();
+                        let _ = crate::server_state::set_pocket_webui_on_state(&s, Some(target.clone()));
+                        println!("Switched Pocket WebUI to: {}", target);
+                    } else {
+                        println!("Invalid selection.");
+                    }
+                }
+            } else {
+                let target_arg = rest.join(" ");
+                if target_arg == "0" || target_arg.eq_ignore_ascii_case("default") || target_arg.eq_ignore_ascii_case("reset") {
+                    let s = state.lock().unwrap();
+                    let _ = crate::server_state::set_pocket_webui_on_state(&s, None);
+                    println!("Reset Pocket WebUI to built-in default PWA.");
+                } else if let Some(target) = match_skin_choice(&target_arg, &files) {
+                    let s = state.lock().unwrap();
+                    let _ = crate::server_state::set_pocket_webui_on_state(&s, Some(target.clone()));
+                    println!("Switched Pocket WebUI to: {}", target);
+                } else {
+                    println!("Skin '{}' not found. Use 'pocket ui' to list available skins.", target_arg);
+                }
+            }
+        }
+        _ => {
+            let (mf, has_pw) = {
+                let s = state.lock().unwrap();
+                let mf = s.music_folder.lock().unwrap().clone();
+                let has_pw = s.pocket_password.lock().unwrap().is_some();
+                (mf, has_pw)
+            };
+            let cur_ui = crate::server_state::read_pocket_webui(&mf)
+                .unwrap_or_else(|| "Built-in Default PWA".to_string());
+            let local_ip = get_local_ip();
+
+            println!();
+            println!("  Pocket Player (Mobile PWA):");
+            println!("    Port:       {}", port);
+            println!("    Local URL:  http://127.0.0.1:{}/pocket", port);
+            if host == "0.0.0.0" {
+                if let Some(ip) = local_ip {
+                    println!("    LAN URL:    http://{}:{}/pocket", ip, port);
+                } else {
+                    println!("    LAN URL:    http://<server-ip>:{}/pocket", port);
+                }
+            } else if host != "127.0.0.1" {
+                println!("    Host URL:   http://{}:{}/pocket", host, port);
+            }
+            println!("    Password:   {}", if has_pw { "Enabled" } else { "Disabled" });
+            println!("    Active UI:  {}", cur_ui);
+            if !mf.is_empty() {
+                let pocket_dir = std::path::Path::new(&mf).join("Listen_WebUI").join("Pocket");
+                println!("    Folder:     {}", pocket_dir.to_string_lossy());
+            }
+            println!();
+            println!("  Usage:");
+            println!("    pocket open          - Open Pocket WebUI in default browser");
+            println!("    pocket ui            - List and switch Pocket WebUI skins");
+            println!("    pocket ui <name|n>   - Switch to skin by name or number");
+            println!("    pocket ui default    - Reset to built-in default PWA");
+            println!("    pocket pw <password> - Set access password");
+            println!("    pocket pw off        - Disable access password");
+            println!();
+        }
+    }
 }
 
 fn play(state: &Arc<Mutex<ServerState>>, args: &[&str]) {
@@ -1399,7 +1713,9 @@ fn print_help() {
     println!("  Output:      audio [normal|asio] / devices / bar [width|char]");
     println!("  System:      status / clear / help / quit");
     println!();
-    println!("  Extras:      lp (LocalPlay) — launch default browser with local Sakura WebUI");
+    println!("  WebUI:       lp (LocalPlay) — launch default browser with local Sakura WebUI");
+    println!("               listen [open|ui] — show port/URL, switch or open Listen WebUI");
+    println!("               pocket [open|ui|pw] — show port/URL, switch UI, manage password");
     println!();
 }
 
@@ -1457,6 +1773,38 @@ mod tests {
     #[test]
     fn test_print_banner() {
         print_banner();
+    }
+
+    #[test]
+    fn test_match_skin_choice() {
+        let skins = vec![
+            "sakura.html".to_string(),
+            "cyberpunk.html".to_string(),
+            "retro.html".to_string(),
+        ];
+
+        // Numeric 1-based index
+        assert_eq!(match_skin_choice("1", &skins), Some("sakura.html".to_string()));
+        assert_eq!(match_skin_choice("2", &skins), Some("cyberpunk.html".to_string()));
+        assert_eq!(match_skin_choice("3", &skins), Some("retro.html".to_string()));
+        assert_eq!(match_skin_choice("4", &skins), None);
+
+        // Exact match
+        assert_eq!(match_skin_choice("cyberpunk.html", &skins), Some("cyberpunk.html".to_string()));
+
+        // Stem match without .html
+        assert_eq!(match_skin_choice("cyberpunk", &skins), Some("cyberpunk.html".to_string()));
+
+        // Partial match
+        assert_eq!(match_skin_choice("cyber", &skins), Some("cyberpunk.html".to_string()));
+
+        // Non-matching
+        assert_eq!(match_skin_choice("neon", &skins), None);
+    }
+
+    #[test]
+    fn test_get_local_ip_no_panic() {
+        let _ = get_local_ip();
     }
 }
 
